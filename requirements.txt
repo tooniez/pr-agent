@@ -1,4 +1,4 @@
-aiohttp==3.9.1
+aiohttp==3.9.2
 atlassian-python-api==3.41.4
 azure-devops==7.1.0b3
 azure-identity==1.15.0
