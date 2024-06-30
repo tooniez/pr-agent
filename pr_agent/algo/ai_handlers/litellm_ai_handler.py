@@ -61,10 +61,10 @@ class LiteLLMAIHandler(BaseAiHandler):
         if get_settings().get("HUGGINGFACE.API_BASE", None) and 'huggingface' in get_settings().config.model:
             litellm.api_base = get_settings().huggingface.api_base
             self.api_base = get_settings().huggingface.api_base
-        if get_settings().get("OLLAMA.API_BASE", None) :
+        if get_settings().get("OLLAMA.API_BASE", None):
             litellm.api_base = get_settings().ollama.api_base
             self.api_base = get_settings().ollama.api_base
-        if get_settings().get("HUGGINGFACE.REPITITION_PENALTY", None):
+        if get_settings().get("HUGGINGFACE.REPETITION_PENALTY", None):
             self.repetition_penalty = float(get_settings().huggingface.repetition_penalty)
         if get_settings().get("VERTEXAI.VERTEX_PROJECT", None):
             litellm.vertex_project = get_settings().vertexai.vertex_project
@@ -129,7 +129,7 @@ class LiteLLMAIHandler(BaseAiHandler):
                 "messages": messages,
                 "temperature": temperature,
                 "force_timeout": get_settings().config.ai_timeout,
-                "api_base" : self.api_base,
+                "api_base": self.api_base,
             }
             if self.aws_bedrock_client:
                 kwargs["aws_bedrock_client"] = self.aws_bedrock_client

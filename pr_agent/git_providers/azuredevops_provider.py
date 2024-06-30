@@ -2,6 +2,7 @@ import os
 from typing import Optional, Tuple
 from urllib.parse import urlparse
 
+from ..algo.file_filter import filter_ignored
 from ..log import get_logger
 from ..algo.language_handler import is_valid_file
 from ..algo.utils import clip_tokens, find_line_number_of_relevant_line_in_file, load_large_diff
@@ -26,6 +27,7 @@ try:
         CommentThread,
         GitVersionDescriptor,
         GitPullRequest,
+        GitPullRequestIterationChanges,
     )
 except ImportError:
     AZURE_DEVOPS_AVAILABLE = False
@@ -230,32 +232,73 @@ class AzureDevopsProvider(GitProvider):
             base_sha = self.pr.last_merge_target_commit
             head_sha = self.pr.last_merge_source_commit
 
-            commits = self.azure_devops_client.get_pull_request_commits(
-                project=self.workspace_slug,
+            # Get PR iterations
+            iterations = self.azure_devops_client.get_pull_request_iterations(
                 repository_id=self.repo_slug,
                 pull_request_id=self.pr_num,
+                project=self.workspace_slug
             )
+            changes = None
+            if iterations:
+                iteration_id = iterations[-1].id  # Get the last iteration (most recent changes)
 
+                # Get changes for the iteration
+                changes = self.azure_devops_client.get_pull_request_iteration_changes(
+                    repository_id=self.repo_slug,
+                    pull_request_id=self.pr_num,
+                    iteration_id=iteration_id,
+                    project=self.workspace_slug
+                )
             diff_files = []
             diffs = []
             diff_types = {}
+            if changes:
+                for change in changes.change_entries:
+                    item = change.additional_properties.get('item', {})
+                    path = item.get('path', None)
+                    if path:
+                        diffs.append(path)
+                        diff_types[path] = change.additional_properties.get('changeType', 'Unknown')
 
-            for c in commits:
-                changes_obj = self.azure_devops_client.get_changes(
-                    project=self.workspace_slug,
-                    repository_id=self.repo_slug,
-                    commit_id=c.commit_id,
-                )
-                for i in changes_obj.changes:
-                    if i["item"]["gitObjectType"] == "tree":
-                        continue
-                    diffs.append(i["item"]["path"])
-                    diff_types[i["item"]["path"]] = i["changeType"]
+            # wrong implementation - gets all the files that were changed in any commit in the PR
+            # commits = self.azure_devops_client.get_pull_request_commits(
+            #     project=self.workspace_slug,
+            #     repository_id=self.repo_slug,
+            #     pull_request_id=self.pr_num,
+            # )
+            #
+            # diff_files = []
+            # diffs = []
+            # diff_types = {}
 
-            diffs = list(set(diffs))
+            # for c in commits:
+            #     changes_obj = self.azure_devops_client.get_changes(
+            #         project=self.workspace_slug,
+            #         repository_id=self.repo_slug,
+            #         commit_id=c.commit_id,
+            #     )
+            #     for i in changes_obj.changes:
+            #         if i["item"]["gitObjectType"] == "tree":
+            #             continue
+            #         diffs.append(i["item"]["path"])
+            #         diff_types[i["item"]["path"]] = i["changeType"]
+            #
+            # diffs = list(set(diffs))
 
+            diffs_original = diffs
+            diffs = filter_ignored(diffs_original, 'azure')
+            if diffs_original != diffs:
+                try:
+                    get_logger().info(f"Filtered out [ignore] files for pull request:", extra=
+                    {"files": diffs_original,  # diffs is just a list of names
+                     "filtered_files": diffs})
+                except Exception:
+                    pass
+
+            invalid_files_names = []
             for file in diffs:
                 if not is_valid_file(file):
+                    invalid_files_names.append(file)
                     continue
 
                 version = GitVersionDescriptor(
@@ -273,12 +316,13 @@ class AzureDevopsProvider(GitProvider):
 
                     new_file_content_str = new_file_content_str.content
                 except Exception as error:
-                    get_logger().error(
-                        "Failed to retrieve new file content of %s at version %s. Error: %s",
-                        file,
-                        version,
-                        str(error),
-                    )
+                    get_logger().error(f"Failed to retrieve new file content of {file} at version {version}. Error: {str(error)}")
+                    # get_logger().error(
+                    #     "Failed to retrieve new file content of %s at version %s. Error: %s",
+                    #     file,
+                    #     version,
+                    #     str(error),
+                    # )
                     new_file_content_str = ""
 
                 edit_type = EDIT_TYPE.MODIFIED
@@ -303,17 +347,17 @@ class AzureDevopsProvider(GitProvider):
                     )
                     original_file_content_str = original_file_content_str.content
                 except Exception as error:
-                    get_logger().error(
-                        "Failed to retrieve original file content of %s at version %s. Error: %s",
-                        file,
-                        version,
-                        str(error),
-                    )
+                    get_logger().error(f"Failed to retrieve original file content of {file} at version {version}. Error: {str(error)}")
                     original_file_content_str = ""
 
                 patch = load_large_diff(
-                    file, new_file_content_str, original_file_content_str
-                )
+                    file, new_file_content_str, original_file_content_str, show_warning=False
+                ).rstrip()
+
+                # count number of lines added and removed
+                patch_lines = patch.splitlines(keepends=True)
+                num_plus_lines = len([line for line in patch_lines if line.startswith('+')])
+                num_minus_lines = len([line for line in patch_lines if line.startswith('-')])
 
                 diff_files.append(
                     FilePatchInfo(
@@ -322,8 +366,12 @@ class AzureDevopsProvider(GitProvider):
                         patch=patch,
                         filename=file,
                         edit_type=edit_type,
+                        num_plus_lines=num_plus_lines,
+                        num_minus_lines=num_minus_lines,
                     )
                 )
+            get_logger().info(f"Invalid files: {invalid_files_names}")
+
             self.diff_files = diff_files
             return diff_files
         except Exception as e:
@@ -404,7 +452,7 @@ class AzureDevopsProvider(GitProvider):
         return dict(body=body, path=path, position=position, absolute_position=absolute_position) if subject_type == "LINE" else {}
 
     def publish_inline_comments(self, comments: list[dict], disable_fallback: bool = False):
-            overall_sucess = True
+            overall_success = True
             for comment in comments:
                 try:
                     self.publish_comment(comment["body"],
@@ -426,8 +474,8 @@ class AzureDevopsProvider(GitProvider):
                 except Exception as e:
                     if get_settings().config.verbosity_level >= 2:
                         get_logger().error(f"Failed to publish code suggestion, error: {e}")
-                    overall_sucess = False
-            return overall_sucess
+                    overall_success = False
+            return overall_success
 
     def get_title(self):
         return self.pr.title

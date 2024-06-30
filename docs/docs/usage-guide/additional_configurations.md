@@ -2,18 +2,30 @@
 
 In some cases, you may want to exclude specific files or directories from the analysis performed by CodiumAI PR-Agent. This can be useful, for example, when you have files that are generated automatically or files that shouldn't be reviewed, like vendored code.
 
-To ignore files or directories, edit the **[ignore.toml](https://github.com/Codium-ai/pr-agent/blob/main/pr_agent/settings/ignore.toml)** configuration file. This setting also exposes the following environment variables:
-
+You can ignore files or folders using the following methods:
  - `IGNORE.GLOB`
  - `IGNORE.REGEX`
 
-For example, to ignore Python files in a PR with online usage, comment on a PR:
-`/review --ignore.glob=['*.py']`
+which you can edit to ignore files or folders based on glob or regex patterns.
 
-To ignore Python files in all PRs, set in a configuration file:
+### Example usage
+
+Let's look at an example where we want to ignore all files with `.py` extension from the analysis.
+
+To ignore Python files in a PR with online usage, comment on a PR:
+`/review --ignore.glob="['*.py']"`
+
+
+To ignore Python files in all PRs using `glob` pattern, set in a configuration file:
 ```
 [ignore]
 glob = ['*.py']
+```
+
+And to ignore Python files in all PRs using `regex` pattern, set in a configuration file:
+```
+[regex]
+regex = ['.*\.py$']
 ```
 
 ## Extra instructions
@@ -59,12 +71,12 @@ and set in your configuration file:
 model="" # the OpenAI model you've deployed on Azure (e.g. gpt-3.5-turbo)
 ```
 
-### Huggingface
+### Hugging Face
 
 **Local**
-You can run Huggingface models locally through either [VLLM](https://docs.litellm.ai/docs/providers/vllm) or [Ollama](https://docs.litellm.ai/docs/providers/ollama)
+You can run Hugging Face models locally through either [VLLM](https://docs.litellm.ai/docs/providers/vllm) or [Ollama](https://docs.litellm.ai/docs/providers/ollama)
 
-E.g. to use a new Huggingface model locally via Ollama, set:
+E.g. to use a new Hugging Face model locally via Ollama, set:
 ```
 [__init__.py]
 MAX_TOKENS = {
@@ -82,14 +94,14 @@ model = "ollama/llama2"
 model_turbo = "ollama/llama2"
 
 [ollama] # in .secrets.toml
-api_base = ... # the base url for your huggingface inference endpoint
+api_base = ... # the base url for your Hugging Face inference endpoint
 # e.g. if running Ollama locally, you may use:
 api_base = "http://localhost:11434/"
 ```
 
 ### Inference Endpoints
 
-To use a new model with Huggingface Inference Endpoints, for example, set:
+To use a new model with Hugging Face Inference Endpoints, for example, set:
 ```
 [__init__.py]
 MAX_TOKENS = {
@@ -105,8 +117,8 @@ model = "huggingface/meta-llama/Llama-2-7b-chat-hf"
 model_turbo = "huggingface/meta-llama/Llama-2-7b-chat-hf"
 
 [huggingface] # in .secrets.toml
-key = ... # your huggingface api key
-api_base = ... # the base url for your huggingface inference endpoint
+key = ... # your Hugging Face api key
+api_base = ... # the base url for your Hugging Face inference endpoint
 ```
 (you can obtain a Llama2 key from [here](https://replicate.com/replicate/llama-2-70b-chat/api))
 

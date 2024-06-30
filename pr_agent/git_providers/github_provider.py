@@ -8,8 +8,9 @@ from github import AppAuthentication, Auth, Github, GithubException
 from retry import retry
 from starlette_context import context
 
+from ..algo.file_filter import filter_ignored
 from ..algo.language_handler import is_valid_file
-from ..algo.utils import load_large_diff, clip_tokens, find_line_number_of_relevant_line_in_file
+from ..algo.utils import PRReviewHeader, load_large_diff, clip_tokens, find_line_number_of_relevant_line_in_file
 from ..config_loader import get_settings
 from ..log import get_logger
 from ..servers.utils import RateLimitExceeded
@@ -18,7 +19,7 @@ from pr_agent.algo.types import EDIT_TYPE, FilePatchInfo
 
 
 class GithubProvider(GitProvider):
-    def __init__(self, pr_url: Optional[str] = None, incremental=IncrementalPR(False)):
+    def __init__(self, pr_url: Optional[str] = None):
         self.repo_obj = None
         try:
             self.installation_id = context.get("installation_id", None)
@@ -33,17 +34,20 @@ class GithubProvider(GitProvider):
         self.github_user_id = None
         self.diff_files = None
         self.git_files = None
-        self.incremental = incremental
+        self.incremental = IncrementalPR(False)
         if pr_url and 'pull' in pr_url:
             self.set_pr(pr_url)
             self.pr_commits = list(self.pr.get_commits())
-            if self.incremental.is_incremental:
-                self.unreviewed_files_set = dict()
-                self.get_incremental_commits()
             self.last_commit_id = self.pr_commits[-1]
             self.pr_url = self.get_pr_url() # pr_url for github actions can be as api.github.com, so we need to get the url from the pr object
         else:
             self.pr_commits = None
+
+    def get_incremental_commits(self, incremental=IncrementalPR(False)):
+        self.incremental = incremental
+        if self.incremental.is_incremental:
+            self.unreviewed_files_set = dict()
+            self._get_incremental_commits()
 
     def is_supported(self, capability: str) -> bool:
         return True
@@ -55,7 +59,7 @@ class GithubProvider(GitProvider):
         self.repo, self.pr_num = self._parse_pr_url(pr_url)
         self.pr = self._get_pr()
 
-    def get_incremental_commits(self):
+    def _get_incremental_commits(self):
         if not self.pr_commits:
             self.pr_commits = list(self.pr.get_commits())
 
@@ -92,9 +96,9 @@ class GithubProvider(GitProvider):
             self.comments = list(self.pr.get_issue_comments())
         prefixes = []
         if full:
-            prefixes.append("## PR Review")
+            prefixes.append(PRReviewHeader.REGULAR.value)
         if incremental:
-            prefixes.append("## Incremental PR Review")
+            prefixes.append(PRReviewHeader.INCREMENTAL.value)
         for index in range(len(self.comments) - 1, -1, -1):
             if any(self.comments[index].body.startswith(prefix) for prefix in prefixes):
                 return self.comments[index]
@@ -106,19 +110,22 @@ class GithubProvider(GitProvider):
             git_files = context.get("git_files", None)
             if git_files:
                 return git_files
-            self.git_files = self.pr.get_files()
+            self.git_files = list(self.pr.get_files()) # 'list' to handle pagination
             context["git_files"] = self.git_files
             return self.git_files
         except Exception:
             if not self.git_files:
-                self.git_files = self.pr.get_files()
+                self.git_files = list(self.pr.get_files())
             return self.git_files
 
     def get_num_of_files(self):
-        if self.git_files:
+        if hasattr(self.git_files, "totalCount"):
             return self.git_files.totalCount
         else:
-            return -1
+            try:
+                return len(self.git_files)
+            except Exception as e:
+                return -1
 
     @retry(exceptions=RateLimitExceeded,
            tries=get_settings().github.ratelimit_retries, delay=2, backoff=2, jitter=(1, 3))
@@ -142,11 +149,24 @@ class GithubProvider(GitProvider):
             if self.diff_files:
                 return self.diff_files
 
-            files = self.get_files()
-            diff_files = []
+            # filter files using [ignore] patterns
+            files_original = self.get_files()
+            files = filter_ignored(files_original)
+            if files_original != files:
+                try:
+                    names_original = [file.filename for file in files_original]
+                    names_new = [file.filename for file in files]
+                    get_logger().info(f"Filtered out [ignore] files for pull request:", extra=
+                    {"files": names_original,
+                     "filtered_files": names_new})
+                except Exception:
+                    pass
 
+            diff_files = []
+            invalid_files_names = []
             for file in files:
                 if not is_valid_file(file.filename):
+                    invalid_files_names.append(file.filename)
                     continue
 
                 new_file_content_str = self._get_pr_file_content(file, self.pr.head.sha)  # communication with GitHub
@@ -182,6 +202,8 @@ class GithubProvider(GitProvider):
                                                                num_plus_lines=num_plus_lines,
                                                                num_minus_lines=num_minus_lines,)
                 diff_files.append(file_patch_canonical_structure)
+            if invalid_files_names:
+                get_logger().info(f"Filtered out files with invalid extensions: {invalid_files_names}")
 
             self.diff_files = diff_files
             try:
@@ -216,7 +238,7 @@ class GithubProvider(GitProvider):
                 latest_commit_url = self.get_latest_commit_url()
                 comment_url = self.get_comment_url(comment)
                 if update_header:
-                    updated_header = f"{initial_header}\n\n### ({name.capitalize()} updated until commit {latest_commit_url})\n"
+                    updated_header = f"{initial_header}\n\n#### ({name.capitalize()} updated until commit {latest_commit_url})\n"
                     pr_comment_updated = pr_comment.replace(initial_header, updated_header)
                 else:
                     pr_comment_updated = pr_comment
