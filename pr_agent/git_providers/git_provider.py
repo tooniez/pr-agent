@@ -376,7 +376,6 @@ def get_main_pr_language(languages, files) -> str:
                         break
         except Exception as e:
             get_logger().exception(f"Failed to get main language: {e}")
-            pass
 
         ## old approach:
         # most_common_extension = max(set(extension_list), key=extension_list.count)
@@ -401,7 +400,6 @@ def get_main_pr_language(languages, files) -> str:
 
     except Exception as e:
         get_logger().exception(e)
-        pass
 
     return main_language_str
 
