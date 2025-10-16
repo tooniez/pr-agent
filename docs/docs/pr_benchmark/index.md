@@ -89,6 +89,12 @@ A list of the models used for generating the baseline suggestions, and example r
       <td style="text-align:center;"><b>40.7</b></td>
     </tr>
     <tr>
+      <td style="text-align:left;">Claude-haiku-4.5</td>
+      <td style="text-align:left;">2025-10-01</td>
+      <td style="text-align:left;"></td>
+      <td style="text-align:center;"><b>40.7</b></td>
+    </tr>
+    <tr>
       <td style="text-align:left;">Claude-4-sonnet</td>
       <td style="text-align:left;">2025-05-14</td>
       <td style="text-align:left;">4096</td>
@@ -188,7 +194,7 @@ weaknesses:
 - **False positives / speculative fixes:** In several cases it flags non-issues (style, performance, redundant code) or supplies debatable “improvements”, lowering precision and sometimes breaching the “critical bugs only” rule.
 - **Inconsistent error coverage:** For certain domains (build scripts, schema files, test code) it either returns an empty list when real regressions exist or proposes cosmetic edits, indicating gaps in specialised knowledge.
 
-### Claude-sonnet-4.5
+### Claude-Sonnet-4.5
 
 Final score: **40.7**
 
@@ -196,15 +202,33 @@ strengths:
 
 - **Concise & well-formatted output:** Most replies strictly follow the schema, stay within the 3-suggestion limit, and include clear, copy-paste-ready patches, making them easy to apply.
 - **Can spot headline bugs:** When a single, obvious regression is present (e.g. duplicated regex block, missing null-check, wrong macro name) the model often detects it and proposes an accurate, minimal fix.
-- **Scope discipline (usually):** It frequently restricts changes to newly-added lines and avoids broad refactors, so many answers comply with the “new code only / critical bugs only” rule.
+- **Scope discipline (usually):** It frequently restricts changes to newly-added lines and avoids broad refactors, so many answers comply with the "new code only / critical bugs only" rule.
 - **Reasonable explanations:** The accompanying rationales are typically short but precise, helping reviewers understand why the change is needed.
 
 weaknesses:
 
 - **Low recall of critical issues:** In a large fraction of examples the model misses the primary bug or flags nothing at all while other reviewers find clear problems. Coverage is therefore unreliable.
 - **False or harmful fixes:** A notable number of suggestions mis-diagnose the code, touch unchanged lines, violate task rules, or would break compilation/runtime (wrong paths, bad types, guideline-forbidden advice).
-- **Priority mistakes:** The model often downgrades severe defects to “general” or upgrades cosmetic nits to “critical”, showing weak bug-severity judgment.
+- **Priority mistakes:** The model often downgrades severe defects to "general" or upgrades cosmetic nits to "critical", showing weak bug-severity judgment.
 - **Inconsistent quality:** Performance swings widely between excellent and poor; reviewers cannot predict whether a given answer will be thorough, partial, or incorrect.
+
+
+### Claude-Haiku-4.5
+
+Final score: **40.7**
+
+Strengths:
+
+- **Good format & clarity:** Consistently produces valid YAML and readable, minimally-intrusive patches with clear before/after snippets, so its outputs are easy to apply.
+- **Basic bug-spotting ability:** Often detects the most obvious new-line defect (e.g., syntax error, missing guard, wrong constant) and supplies a correct, concise fix; rarely ranks last in the set.
+- **Rule compliance in many cases:** Usually stays within the 3-suggestion limit, touches only '+' lines, and avoids speculative refactors—returning an empty list when no code was added.
+
+Weaknesses:
+
+- **Shallow coverage:** Frequently fixes just one surface-level issue and misses additional, higher-impact bugs that stronger reviewers catch, leaving regressions in place.
+- **Occasional incorrect or no-op patches:** A noticeable share of suggestions either leave code unchanged, contain invalid code, or introduce new errors, lowering trust.
+- **Guideline slips:** In several examples it edits unchanged lines, adds forbidden imports/version bumps, mis-labels severities, or supplies non-critical stylistic advice.
+- **Inconsistent diligence:** Roughly a quarter of the cases return an empty list despite real problems, while others duplicate existing PR changes, indicating weak diff comprehension.
 
 ### Claude-4 Sonnet (4096 thinking tokens)
 
@@ -374,5 +398,3 @@ The PR benchmark dataset includes pull requests containing code in the following
 
 Pull requests may also include non-code files such as `YAML`, `JSON`, `Markdown`, `Dockerfile` ,`Shell`, etc. 
 The benchmarked models should also analyze these files, as they commonly appear in real-world pull requests.
-
-
