@@ -217,7 +217,7 @@ Ticket Description:
 #####
 {%- endif %}
 
-{%- if ticket.requirements %}
+{%- if ticket.requirements is defined and ticket.requirements %}
 Ticket Requirements:
 #####
 {{ ticket.requirements }}
