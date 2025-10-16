@@ -215,7 +215,7 @@ weaknesses:
 
 ### Claude-Haiku-4.5
 
-normalized score: **40.7**
+Final score: **40.7**
 
 Strengths:
 
