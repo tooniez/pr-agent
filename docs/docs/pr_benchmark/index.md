@@ -71,26 +71,32 @@ A list of the models used for generating the baseline suggestions, and example r
       <td style="text-align:center;"><b>56.3</b></td>
     </tr>
     <tr>
+      <td style="text-align:left;">Claude-haiku-4.5</td>
+      <td style="text-align:left;">2025-10-01</td>
+      <td style="text-align:left;">4096</td>
+      <td style="text-align:center;"><b>48.8</b></td>
+    </tr>
+    <tr>
       <td style="text-align:left;">Gemini-2.5-pro</td>
       <td style="text-align:left;">2025-06-05</td>
       <td style="text-align:left;">1024</td>
       <td style="text-align:center;"><b>44.3</b></td>
     </tr>
     <tr>
-      <td style="text-align:left;">Grok-4</td>
-      <td style="text-align:left;">2025-07-09</td>
-      <td style="text-align:left;">unknown</td>
-      <td style="text-align:center;"><b>41.7</b></td>
-    </tr>
-    <tr>
       <td style="text-align:left;">Claude-sonnet-4.5</td>
       <td style="text-align:left;">2025-09-29</td>
-      <td style="text-align:left;"></td>
-      <td style="text-align:center;"><b>40.7</b></td>
+      <td style="text-align:left;">4096</td>
+      <td style="text-align:center;"><b>44.2</b></td>
     </tr>
     <tr>
       <td style="text-align:left;">Claude-haiku-4.5</td>
       <td style="text-align:left;">2025-10-01</td>
+      <td style="text-align:left;"></td>
+      <td style="text-align:center;"><b>40.7</b></td>
+    </tr>
+    <tr>
+      <td style="text-align:left;">Claude-sonnet-4.5</td>
+      <td style="text-align:left;">2025-09-29</td>
       <td style="text-align:left;"></td>
       <td style="text-align:center;"><b>40.7</b></td>
     </tr>
@@ -119,6 +125,12 @@ A list of the models used for generating the baseline suggestions, and example r
       <td style="text-align:center;"><b>33.5</b></td>
     </tr>
     <tr>
+      <td style="text-align:left;">Grok-4</td>
+      <td style="text-align:left;">2025-07-09</td>
+      <td style="text-align:left;">unknown</td>
+      <td style="text-align:center;"><b>32.8</b></td>
+    </tr>
+    <tr>
       <td style="text-align:left;">Claude-4-opus-20250514</td>
       <td style="text-align:left;">2025-05-14</td>
       <td style="text-align:left;"></td>
@@ -145,14 +157,14 @@ A list of the models used for generating the baseline suggestions, and example r
 
 Final score: **62.5**
 
-strengths:
+Strengths:
 
 - **High precision & compliance:** Generally respects task rules (limits, “added lines” scope, YAML schema) and avoids false-positive advice, often returning an empty list when appropriate.  
 - **Clear, actionable output:** Suggestions are concise, well-explained and include correct before/after patches, so reviewers can apply them directly.  
 - **Good critical-bug detection rate:** Frequently spots compile-breakers or obvious runtime faults (nil / NPE, overflow, race, wrong selector, etc.), putting it at least on par with many peers.  
 - **Consistent formatting:** Produces syntactically valid YAML with correct labels, making automated consumption easy.
 
-weaknesses:
+Weaknesses:
 
 - **Narrow coverage:** Tends to stop after 1-2 issues; regularly misses additional critical defects that better answers catch, so it is seldom the top-ranked review.  
 - **Occasional inaccuracies:** A few replies introduce new bugs, give partial/duplicate fixes, or (rarely) violate rules (e.g., import suggestions), hurting trust.  
@@ -163,14 +175,14 @@ weaknesses:
 
 Final score: **57.7**
 
-strengths:
+Strengths:
 
 - **Good rule adherence:** Most answers respect the “new-lines only”, 3-suggestion, and YAML-schema limits, and frequently choose the safe empty list when the diff truly adds no critical bug.
 - **Clear, minimal patches:** When the model does spot a defect it usually supplies terse, valid before/after snippets and short, targeted explanations, making fixes easy to read and apply.
 - **Language & domain breadth:** Demonstrates competence across many ecosystems (C/C++, Java, TS/JS, Go, Rust, Python, Bash, Markdown, YAML, SQL, CSS, translation files, etc.) and can detect both compile-time and runtime mistakes.
 - **Often competitive:** In a sizeable minority of cases the model ties for best or near-best answer, occasionally being the only response to catch a subtle crash or build blocker.
 
-weaknesses:
+Weaknesses:
 
 - **High miss rate:** A large share of examples show the model returning an empty list or only minor advice while other reviewers catch clear, high-impact bugs—indicative of weak defect-detection recall.
 - **False or harmful fixes:** Several answers introduce new compilation errors, propose out-of-scope changes, or violate explicit rules (e.g., adding imports, version bumps, touching untouched lines), reducing trustworthiness.
@@ -180,67 +192,99 @@ weaknesses:
 
 Final score: **56.3**
 
-strengths:
+Strengths:
 
 - **High formatting compliance:** The model almost always produces valid YAML, respects the three-suggestion limit, and supplies clear before/after code snippets and short rationales.
 - **Good “first-bug” detection:** It frequently notices the single most obvious regression (crash, compile error, nil/NPE risk, wrong path, etc.) and gives a minimal, correct patch—often judged “on-par” with other solid answers.
 - **Clear, concise writing:** Explanations are brief yet understandable for reviewers; fixes are scoped to the changed lines and rarely include extraneous context.
 - **Low rate of harmful fixes:** Truly dangerous or build-breaking advice is rare; most mistakes are omissions rather than wrong code.
 
-weaknesses:
+Weaknesses:
 
 - **Limited breadth of review:** The model regularly stops after the first or second issue, missing additional critical problems that stronger answers surface, so it is often out-ranked by more comprehensive peers.
 - **Occasional guideline violations:** A noticeable minority of answers touch unchanged lines, exceed the 3-item cap, suggest adding imports, or drop the required YAML wrapper, leading to automatic downgrades.
 - **False positives / speculative fixes:** In several cases it flags non-issues (style, performance, redundant code) or supplies debatable “improvements”, lowering precision and sometimes breaching the “critical bugs only” rule.
 - **Inconsistent error coverage:** For certain domains (build scripts, schema files, test code) it either returns an empty list when real regressions exist or proposes cosmetic edits, indicating gaps in specialised knowledge.
 
-### Claude-Sonnet-4.5
+### Claude-haiku-4.5 (4096 thinking tokens)
 
-Final score: **40.7**
+Final score: **48.8**
 
-strengths:
+Strengths:
 
-- **Concise & well-formatted output:** Most replies strictly follow the schema, stay within the 3-suggestion limit, and include clear, copy-paste-ready patches, making them easy to apply.
-- **Can spot headline bugs:** When a single, obvious regression is present (e.g. duplicated regex block, missing null-check, wrong macro name) the model often detects it and proposes an accurate, minimal fix.
-- **Scope discipline (usually):** It frequently restricts changes to newly-added lines and avoids broad refactors, so many answers comply with the "new code only / critical bugs only" rule.
-- **Reasonable explanations:** The accompanying rationales are typically short but precise, helping reviewers understand why the change is needed.
+- **High precision on detected issues:** When the model does flag a problem it is usually a real, high-impact bug; many answers are judged equal or better than strong baselines because the proposed fix is correct, minimal and easy to apply.
+- **Language- and domain-agnostic competence:** It successfully diagnoses defects across a wide range of languages (Python, Go, C/C++, Rust, JS/TS, CSS, SQL, Markdown, etc.) and domains (backend logic, build files, tests, docs).
+- **Clear, actionable patches:** Suggested code is typically concise, well-explained and scoped exactly to the added lines, making it practical for reviewers to adopt.
 
-weaknesses:
+Weaknesses:
 
-- **Low recall of critical issues:** In a large fraction of examples the model misses the primary bug or flags nothing at all while other reviewers find clear problems. Coverage is therefore unreliable.
-- **False or harmful fixes:** A notable number of suggestions mis-diagnose the code, touch unchanged lines, violate task rules, or would break compilation/runtime (wrong paths, bad types, guideline-forbidden advice).
-- **Priority mistakes:** The model often downgrades severe defects to "general" or upgrades cosmetic nits to "critical", showing weak bug-severity judgment.
-- **Inconsistent quality:** Performance swings widely between excellent and poor; reviewers cannot predict whether a given answer will be thorough, partial, or incorrect.
+- **Low recall / narrow coverage:** The model often stops after one or two findings, leaving other obvious critical bugs unmentioned; in many examples stronger answers simply covered more ground.
+- **Occasional faulty or speculative fixes:** A non-trivial number of responses either mis-diagnose the issue or introduce new errors (e.g., wrong logic, undeclared imports), dropping them below baseline quality.
+- **Inconsistent output robustness:** Several cases show truncated or malformed responses, reducing value despite correct analysis elsewhere.
+- **Frequent false negatives:** The model sometimes returns an empty list even when clear regressions exist, indicating conservative behaviour that misses mandatory fixes.
 
+### Claude-sonnet-4.5 (4096 thinking tokens)
 
-### Claude-Haiku-4.5
+Final score: **44.2**
+
+Strengths:
+
+- **High precision / low noise:** When the model does offer fixes they are usually correct, concise and confined to the new '+' lines, rarely introducing spurious or off-scope changes.
+- **Clear, actionable patches:** Suggestions come with well-explained reasoning and minimal but valid code snippets, making them easy for a reviewer to apply.
+- **Good rule compliance:** It almost always respects the 1-3 suggestion limit, avoids touching unchanged code and seldom violates formatting or other task guidelines.
+
+Weaknesses:
+
+- **Low recall / frequent omissions:** In a large share of cases the model returns an empty list or only one minor tip while overlooking obvious, higher-impact regressions found by peers.
+- **Narrow coverage when it does respond:** Even in non-empty outputs it typically fixes a single issue and ignores related defects in the same diff, indicating shallow analysis.
+- **Occasional harmful or incomplete fixes:** A few suggestions introduce new errors (e.g., wrong logic, missing imports, malformed snippets) or mark non-critical style nits as "critical", reducing trust.
+
+### Claude-sonnet-4.5
 
 Final score: **40.7**
 
 Strengths:
 
-- **Good format & clarity:** Consistently produces valid YAML and readable, minimally-intrusive patches with clear before/after snippets, so its outputs are easy to apply.
-- **Basic bug-spotting ability:** Often detects the most obvious new-line defect (e.g., syntax error, missing guard, wrong constant) and supplies a correct, concise fix; rarely ranks last in the set.
-- **Rule compliance in many cases:** Usually stays within the 3-suggestion limit, touches only '+' lines, and avoids speculative refactors—returning an empty list when no code was added.
+- **Concise & well-formatted output:** Most replies strictly follow the schema, stay within the 3-suggestion limit, and include clear, copy-paste-ready patches, making them easy to apply.
+- **Can spot headline bugs:** When a single, obvious regression is present (e.g. duplicated regex block, missing null-check, wrong macro name) the model often detects it and proposes an accurate, minimal fix.
+- **Scope discipline (usually):** It frequently restricts changes to newly-added lines and avoids broad refactors, so many answers comply with the “new code only / critical bugs only” rule.
+- **Reasonable explanations:** The accompanying rationales are typically short but precise, helping reviewers understand why the change is needed.
 
 Weaknesses:
 
-- **Shallow coverage:** Frequently fixes just one surface-level issue and misses additional, higher-impact bugs that stronger reviewers catch, leaving regressions in place.
-- **Occasional incorrect or no-op patches:** A noticeable share of suggestions either leave code unchanged, contain invalid code, or introduce new errors, lowering trust.
-- **Guideline slips:** In several examples it edits unchanged lines, adds forbidden imports/version bumps, mis-labels severities, or supplies non-critical stylistic advice.
-- **Inconsistent diligence:** Roughly a quarter of the cases return an empty list despite real problems, while others duplicate existing PR changes, indicating weak diff comprehension.
+- **Low recall of critical issues:** In a large fraction of examples the model misses the primary bug or flags nothing at all while other reviewers find clear problems. Coverage is therefore unreliable.
+- **False or harmful fixes:** A notable number of suggestions mis-diagnose the code, touch unchanged lines, violate task rules, or would break compilation/runtime (wrong paths, bad types, guideline-forbidden advice).
+- **Priority mistakes:** The model often downgrades severe defects to “general” or upgrades cosmetic nits to “critical”, showing weak bug-severity judgment.
+- **Inconsistent quality:** Performance swings widely between excellent and poor; reviewers cannot predict whether a given answer will be thorough, partial, or incorrect.
+
+### Claude-haiku-4.5
+
+Final score: 40.7
+
+Strengths:
+
+- **Good format & clarity: Consistently produces valid YAML and readable, minimally-intrusive patches with clear before/after snippets, so its outputs are easy to apply.
+- **Basic bug-spotting ability: Often detects the most obvious new-line defect (e.g., syntax error, missing guard, wrong constant) and supplies a correct, concise fix; rarely ranks last in the set.
+- **Rule compliance in many cases: Usually stays within the 3-suggestion limit, touches only '+' lines, and avoids speculative refactors—returning an empty list when no code was added.
+
+Weaknesses:
+
+- **Shallow coverage: Frequently fixes just one surface-level issue and misses additional, higher-impact bugs that stronger reviewers catch, leaving regressions in place.
+- **Occasional incorrect or no-op patches: A noticeable share of suggestions either leave code unchanged, contain invalid code, or introduce new errors, lowering trust.
+- **Guideline slips: In several examples it edits unchanged lines, adds forbidden imports/version bumps, mis-labels severities, or supplies non-critical stylistic advice.
+- **Inconsistent diligence: Roughly a quarter of the cases return an empty list despite real problems, while others duplicate existing PR changes, indicating weak diff comprehension.
 
 ### Claude-4 Sonnet (4096 thinking tokens)
 
 Final score: **39.7**
 
-strengths:
+Strengths:
 
 - **High guideline & format compliance:** Almost always returns valid YAML, keeps ≤ 3 suggestions, avoids forbidden import/boiler-plate changes and provides clear before/after snippets.
 - **Good pinpoint accuracy on single issues:** Frequently spots at least one real critical bug and proposes a concise, technically correct fix that compiles/runs.
 - **Clarity & brevity of patches:** Explanations are short, actionable, and focused on changed lines, making the advice easy for reviewers to apply.
 
-weaknesses:
+Weaknesses:
 
 - **Low coverage / recall:** Regularly surfaces only one minor issue (or none) while missing other, often more severe, problems caught by peer models.
 - **High "empty-list" rate:** In many diffs the model returns no suggestions even when clear critical bugs exist, offering zero reviewer value.
@@ -252,7 +296,7 @@ weaknesses:
 
 Final score: **39.0**
 
-strengths:
+Strengths:
 
 - **Consistently well-formatted & rule-compliant output:** Almost every answer follows the required YAML schema, keeps within the 3-suggestion limit, and returns an empty list when no issues are found, showing good instruction following.
 
@@ -260,75 +304,59 @@ strengths:
 
 - **Decent hit-rate on “obvious” bugs:** The model reliably catches the most blatant syntax errors, null-checks, enum / cast problems, and other first-order issues, so it often ties or slightly beats weaker baseline replies.
 
-weaknesses:
+Weaknesses:
 
 - **Shallow coverage:** It frequently stops after one easy bug and overlooks additional, equally-critical problems that stronger reviewers find, leaving significant risks unaddressed.
 
 - **False positives & harmful fixes:** In a noticeable minority of cases it misdiagnoses code, suggests changes that break compilation or behaviour, or flags non-issues, sometimes making its output worse than doing nothing.
 
-- **Drifts into non-critical or out-of-scope advice:** The model regularly proposes style tweaks, documentation edits, or changes to unchanged lines, violating the “critical new-code only” requirement.
+- **Drifts into non-critical or out-of-scope advice:** The model regularly proposes style tweaks, documentation edits, or changes to unchanged lines, violating the "critical new-code only" requirement.
 
+### OpenAI codex-mini
+
+Final score: **37.2**
+
+Strengths:
+
+- **Can spot high-impact defects:** When it "locks on", codex-mini often identifies the main runtime or security regression (e.g., race-conditions, logic inversions, blocking I/O, resource leaks) and proposes a minimal, direct patch that compiles and respects neighbouring style.
+- **Produces concise, scoped fixes:** Valid answers usually stay within the allowed 3-suggestion limit, reference only the added lines, and contain clear before/after snippets that reviewers can apply verbatim.
+- **Occasional broad coverage:** In a minority of cases the model catches multiple independent issues (logic + tests + docs) and outperforms every baseline answer, showing good contextual understanding of heterogeneous diffs.
+
+Weaknesses:
+
+- **Output instability / format errors:** A very large share of responses are unusable—plain refusals, shell commands, or malformed/empty YAML—indicating brittle adherence to the required schema and tanking overall usefulness.
+- **Critical-miss rate:** Even when the format is correct the model frequently overlooks the single most serious bug the diff introduces, instead focusing on stylistic nits or speculative refactors.
+- **Introduces new problems:** Several suggestions add unsupported APIs, undeclared variables, wrong types, or break compilation, hurting trust in the recommendations.
+- **Rule violations:** It often edits lines outside the diff, exceeds the 3-suggestion cap, or labels cosmetic tweaks as "critical", showing inconsistent guideline compliance.
 
 ### Gemini-2.5 Flash
 
-strengths:
+Final score: **33.5**
+
+Strengths:
 
 - **High precision / low false-positive rate:** The model often stays silent or gives a single, well-justified fix, so when it does speak the suggestion is usually correct and seldom touches unchanged lines, keeping guideline compliance high.  
 - **Good guideline awareness:** YAML structure is consistently valid; suggestions rarely exceed the 3-item limit and generally restrict themselves to newly-added lines.  
 - **Clear, concise patches:** When a defect is found, the model produces short rationales and tidy “improved_code” blocks that reviewers can apply directly.  
 - **Risk-averse behaviour pays off in “no-bug” PRs:** In examples where the diff truly contained no critical issue, the model’s empty output ranked above peers that offered speculative or stylistic advice.
 
-weaknesses:
+Weaknesses:
 
 - **Very low recall / shallow coverage:** In a large majority of cases it gives 0-1 suggestions and misses other evident, critical bugs highlighted by peer models, leading to inferior rankings.  
 - **Occasional incorrect or harmful fixes:** A noticeable subset of answers propose changes that break functionality or misunderstand the code (e.g. bad constant, wrong header logic, speculative rollbacks).  
 - **Non-actionable placeholders:** Some “improved_code” sections contain comments or “…” rather than real patches, reducing practical value.  
 
-### GPT-4.1
-
-Final score: **26.5**
-
-strengths:
-
-- **Consistent format & guideline obedience:** Output is almost always valid YAML, within the 3-suggestion limit, and rarely touches lines not prefixed with “+”.  
-- **Low false-positive rate:** When no real defect exists, the model correctly returns an empty list instead of inventing speculative fixes, avoiding the “noise” many baseline answers add.  
-- **Clear, concise patches when it does act:** In the minority of cases where it detects a bug (e.g., ex-13, 46, 212), the fix is usually correct, minimal, and easy to apply.
-
-weaknesses:
-
-- **Very low recall / coverage:** In a large majority of examples it outputs an empty list or only 1 trivial suggestion while obvious critical issues remain unfixed; it systematically misses circular bugs, null-checks, schema errors, etc.  
-- **Shallow analysis:** Even when it finds one problem it seldom looks deeper, so more severe or additional bugs in the same diff are left unaddressed.  
-- **Occasional technical inaccuracies:** A noticeable subset of suggestions are wrong (mis-ordered assertions, harmful Bash `set` change, false dangling-reference claims) or carry metadata errors (mis-labeling files as “python”).  
-- **Repetitive / derivative fixes:** Many outputs duplicate earlier simplistic ideas (e.g., single null-check) without new insight, showing limited reasoning breadth.
-
-### OpenAI codex-mini
-
-final score: **37.2**
-
-strengths:
-
-- **Can spot high-impact defects:** When it “locks on”, codex-mini often identifies the main runtime or security regression (e.g., race-conditions, logic inversions, blocking I/O, resource leaks) and proposes a minimal, direct patch that compiles and respects neighbouring style.
-- **Produces concise, scoped fixes:** Valid answers usually stay within the allowed 3-suggestion limit, reference only the added lines, and contain clear before/after snippets that reviewers can apply verbatim.
-- **Occasional broad coverage:** In a minority of cases the model catches multiple independent issues (logic + tests + docs) and outperforms every baseline answer, showing good contextual understanding of heterogeneous diffs.
-
-weaknesses:
-
-- **Output instability / format errors:** A very large share of responses are unusable—plain refusals, shell commands, or malformed/empty YAML—indicating brittle adherence to the required schema and tanking overall usefulness.
-- **Critical-miss rate:** Even when the format is correct the model frequently overlooks the single most serious bug the diff introduces, instead focusing on stylistic nits or speculative refactors.
-- **Introduces new problems:** Several suggestions add unsupported APIs, undeclared variables, wrong types, or break compilation, hurting trust in the recommendations.
-- **Rule violations:** It often edits lines outside the diff, exceeds the 3-suggestion cap, or labels cosmetic tweaks as “critical”, showing inconsistent guideline compliance.
-
 ### Claude-4 Opus
 
-final score: **32.8**
+Final score: **32.8**
 
-strengths:
+Strengths:
 
 - **Format & rule adherence:** Almost always returns valid YAML, stays within the ≤3-suggestion limit, and usually restricts edits to newly-added lines, so its output is easy to apply automatically.
 - **Concise, focused patches:** When it does find a real bug it gives short, well-scoped explanations plus minimal diff snippets, often outperforming verbose baselines in clarity.
 - **Able to catch subtle edge-cases:** In several examples it detected overflow, race-condition or enum-mismatch issues that many other models missed, showing solid code‐analysis capability.
 
-weaknesses:
+Weaknesses:
 
 - **Low recall / narrow coverage:** In a large share of the 399 examples the model produced an empty list or only one minor tip while more serious defects were present, causing it to be rated inferior to most baselines.
 - **Frequent incorrect or no-op fixes:** It sometimes supplies identical “before/after” code, flags non-issues, or suggests changes that would break compilation or logic, reducing reviewer trust.
@@ -336,20 +364,37 @@ weaknesses:
 
 ### Grok-4
 
-final score: **32.8**
+Final score: **32.8**
 
-strengths:
+Strengths:
 
 - **Focused and concise fixes:** When the model does detect a problem it usually proposes a minimal, well-scoped patch that compiles and directly addresses the defect without unnecessary noise.  
 - **Good critical-bug instinct:** It often prioritises show-stoppers (compile failures, crashes, security issues) over cosmetic matters and occasionally spots subtle issues that all other reviewers miss.  
 - **Clear explanations & snippets:** Explanations are short, readable and paired with ready-to-paste code, making the advice easy to apply.  
 
-weaknesses:
+Weaknesses:
 
 - **High miss rate:** In a large fraction of examples the model returned an empty list or covered only one minor issue while overlooking more serious newly-introduced bugs.  
 - **Inconsistent accuracy:** A noticeable subset of answers contain wrong or even harmful fixes (e.g., removing valid flags, creating compile errors, re-introducing bugs).  
 - **Limited breadth:** Even when it finds a real defect it rarely reports additional related problems that peers catch, leading to partial reviews.  
 - **Occasional guideline slips:** A few replies modify unchanged lines, suggest new imports, or duplicate suggestions, showing imperfect compliance with instructions.
+
+### GPT-4.1
+
+Final score: **26.5**
+
+Strengths:
+
+- **Consistent format & guideline obedience:** Output is almost always valid YAML, within the 3-suggestion limit, and rarely touches lines not prefixed with "+".
+- **Low false-positive rate:** When no real defect exists, the model correctly returns an empty list instead of inventing speculative fixes, avoiding the "noise" many baseline answers add.
+- **Clear, concise patches when it does act:** In the minority of cases where it detects a bug (e.g., ex-13, 46, 212), the fix is usually correct, minimal, and easy to apply.
+
+Weaknesses:
+
+- **Very low recall / coverage:** In a large majority of examples it outputs an empty list or only 1 trivial suggestion while obvious critical issues remain unfixed; it systematically misses circular bugs, null-checks, schema errors, etc.
+- **Shallow analysis:** Even when it finds one problem it seldom looks deeper, so more severe or additional bugs in the same diff are left unaddressed.
+- **Occasional technical inaccuracies:** A noticeable subset of suggestions are wrong (mis-ordered assertions, harmful Bash `set` change, false dangling-reference claims) or carry metadata errors (mis-labeling files as "python").
+- **Repetitive / derivative fixes:** Many outputs duplicate earlier simplistic ideas (e.g., single null-check) without new insight, showing limited reasoning breadth.
 
 ## Appendix - Example Results
 
