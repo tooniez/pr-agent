@@ -71,6 +71,12 @@ A list of the models used for generating the baseline suggestions, and example r
       <td style="text-align:center;"><b>56.3</b></td>
     </tr>
     <tr>
+      <td style="text-align:left;">Claude-haiku-4.5</td>
+      <td style="text-align:left;">2025-10-01</td>
+      <td style="text-align:left;">4096</td>
+      <td style="text-align:center;"><b>48.8</b></td>
+    </tr>
+    <tr>
       <td style="text-align:left;">Gemini-2.5-pro</td>
       <td style="text-align:left;">2025-06-05</td>
       <td style="text-align:left;">1024</td>
@@ -193,6 +199,23 @@ weaknesses:
 - **Occasional guideline violations:** A noticeable minority of answers touch unchanged lines, exceed the 3-item cap, suggest adding imports, or drop the required YAML wrapper, leading to automatic downgrades.
 - **False positives / speculative fixes:** In several cases it flags non-issues (style, performance, redundant code) or supplies debatable “improvements”, lowering precision and sometimes breaching the “critical bugs only” rule.
 - **Inconsistent error coverage:** For certain domains (build scripts, schema files, test code) it either returns an empty list when real regressions exist or proposes cosmetic edits, indicating gaps in specialised knowledge.
+
+### Claude-haiku-4.5 (4096 thinking tokens)
+
+Final score: **48.8**
+
+strengths:
+
+- **High precision on detected issues:** When the model does flag a problem it is usually a real, high-impact bug; many answers are judged equal or better than strong baselines because the proposed fix is correct, minimal and easy to apply.
+- **Language- and domain-agnostic competence:** It successfully diagnoses defects across a wide range of languages (Python, Go, C/C++, Rust, JS/TS, CSS, SQL, Markdown, etc.) and domains (backend logic, build files, tests, docs).
+- **Clear, actionable patches:** Suggested code is typically concise, well-explained and scoped exactly to the added lines, making it practical for reviewers to adopt.
+
+weaknesses:
+
+- **Low recall / narrow coverage:** The model often stops after one or two findings, leaving other obvious critical bugs unmentioned; in many examples stronger answers simply covered more ground.
+- **Occasional faulty or speculative fixes:** A non-trivial number of responses either mis-diagnose the issue or introduce new errors (e.g., wrong logic, undeclared imports), dropping them below baseline quality.
+- **Inconsistent output robustness:** Several cases show truncated or malformed responses, reducing value despite correct analysis elsewhere.
+- **Frequent false negatives:** The model sometimes returns an empty list even when clear regressions exist, indicating conservative behaviour that misses mandatory fixes.
 
 ### Claude-sonnet-4.5 (4096 thinking tokens)
 
