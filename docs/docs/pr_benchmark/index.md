@@ -443,5 +443,3 @@ The PR benchmark dataset includes pull requests containing code in the following
 
 Pull requests may also include non-code files such as `YAML`, `JSON`, `Markdown`, `Dockerfile` ,`Shell`, etc. 
 The benchmarked models should also analyze these files, as they commonly appear in real-world pull requests.
-
-
