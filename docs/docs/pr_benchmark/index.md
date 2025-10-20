@@ -77,10 +77,10 @@ A list of the models used for generating the baseline suggestions, and example r
       <td style="text-align:center;"><b>44.3</b></td>
     </tr>
     <tr>
-      <td style="text-align:left;">Grok-4</td>
-      <td style="text-align:left;">2025-07-09</td>
-      <td style="text-align:left;">unknown</td>
-      <td style="text-align:center;"><b>41.7</b></td>
+      <td style="text-align:left;">Claude-sonnet-4.5</td>
+      <td style="text-align:left;">2025-09-29</td>
+      <td style="text-align:left;">4096</td>
+      <td style="text-align:center;"><b>44.2</b></td>
     </tr>
     <tr>
       <td style="text-align:left;">Claude-sonnet-4.5</td>
@@ -111,6 +111,12 @@ A list of the models used for generating the baseline suggestions, and example r
       <td style="text-align:left;">2025-04-17</td>
       <td style="text-align:left;"></td>
       <td style="text-align:center;"><b>33.5</b></td>
+    </tr>
+    <tr>
+      <td style="text-align:left;">Grok-4</td>
+      <td style="text-align:left;">2025-07-09</td>
+      <td style="text-align:left;">unknown</td>
+      <td style="text-align:center;"><b>32.8</b></td>
     </tr>
     <tr>
       <td style="text-align:left;">Claude-4-opus-20250514</td>
@@ -187,6 +193,22 @@ weaknesses:
 - **Occasional guideline violations:** A noticeable minority of answers touch unchanged lines, exceed the 3-item cap, suggest adding imports, or drop the required YAML wrapper, leading to automatic downgrades.
 - **False positives / speculative fixes:** In several cases it flags non-issues (style, performance, redundant code) or supplies debatable “improvements”, lowering precision and sometimes breaching the “critical bugs only” rule.
 - **Inconsistent error coverage:** For certain domains (build scripts, schema files, test code) it either returns an empty list when real regressions exist or proposes cosmetic edits, indicating gaps in specialised knowledge.
+
+### Claude-sonnet-4.5 (4096 thinking tokens)
+
+Final score: **44.2**
+
+strengths:
+
+- **High precision / low noise:** When the model does offer fixes they are usually correct, concise and confined to the new '+' lines, rarely introducing spurious or off-scope changes.
+- **Clear, actionable patches:** Suggestions come with well-explained reasoning and minimal but valid code snippets, making them easy for a reviewer to apply.
+- **Good rule compliance:** It almost always respects the 1-3 suggestion limit, avoids touching unchanged code and seldom violates formatting or other task guidelines.
+
+weaknesses:
+
+- **Low recall / frequent omissions:** In a large share of cases the model returns an empty list or only one minor tip while overlooking obvious, higher-impact regressions found by peers.
+- **Narrow coverage when it does respond:** Even in non-empty outputs it typically fixes a single issue and ignores related defects in the same diff, indicating shallow analysis.
+- **Occasional harmful or incomplete fixes:** A few suggestions introduce new errors (e.g., wrong logic, missing imports, malformed snippets) or mark non-critical style nits as "critical", reducing trust.
 
 ### Claude-sonnet-4.5
 
