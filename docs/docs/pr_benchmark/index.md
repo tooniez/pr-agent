@@ -264,10 +264,28 @@ weaknesses:
 
 - **False positives & harmful fixes:** In a noticeable minority of cases it misdiagnoses code, suggests changes that break compilation or behaviour, or flags non-issues, sometimes making its output worse than doing nothing.
 
-- **Drifts into non-critical or out-of-scope advice:** The model regularly proposes style tweaks, documentation edits, or changes to unchanged lines, violating the “critical new-code only” requirement.
+- **Drifts into non-critical or out-of-scope advice:** The model regularly proposes style tweaks, documentation edits, or changes to unchanged lines, violating the "critical new-code only" requirement.
 
+### OpenAI codex-mini
+
+Final score: **37.2**
+
+strengths:
+
+- **Can spot high-impact defects:** When it "locks on", codex-mini often identifies the main runtime or security regression (e.g., race-conditions, logic inversions, blocking I/O, resource leaks) and proposes a minimal, direct patch that compiles and respects neighbouring style.
+- **Produces concise, scoped fixes:** Valid answers usually stay within the allowed 3-suggestion limit, reference only the added lines, and contain clear before/after snippets that reviewers can apply verbatim.
+- **Occasional broad coverage:** In a minority of cases the model catches multiple independent issues (logic + tests + docs) and outperforms every baseline answer, showing good contextual understanding of heterogeneous diffs.
+
+weaknesses:
+
+- **Output instability / format errors:** A very large share of responses are unusable—plain refusals, shell commands, or malformed/empty YAML—indicating brittle adherence to the required schema and tanking overall usefulness.
+- **Critical-miss rate:** Even when the format is correct the model frequently overlooks the single most serious bug the diff introduces, instead focusing on stylistic nits or speculative refactors.
+- **Introduces new problems:** Several suggestions add unsupported APIs, undeclared variables, wrong types, or break compilation, hurting trust in the recommendations.
+- **Rule violations:** It often edits lines outside the diff, exceeds the 3-suggestion cap, or labels cosmetic tweaks as "critical", showing inconsistent guideline compliance.
 
 ### Gemini-2.5 Flash
+
+Final score: **33.5**
 
 strengths:
 
@@ -282,43 +300,9 @@ weaknesses:
 - **Occasional incorrect or harmful fixes:** A noticeable subset of answers propose changes that break functionality or misunderstand the code (e.g. bad constant, wrong header logic, speculative rollbacks).  
 - **Non-actionable placeholders:** Some “improved_code” sections contain comments or “…” rather than real patches, reducing practical value.  
 
-### GPT-4.1
-
-Final score: **26.5**
-
-strengths:
-
-- **Consistent format & guideline obedience:** Output is almost always valid YAML, within the 3-suggestion limit, and rarely touches lines not prefixed with “+”.  
-- **Low false-positive rate:** When no real defect exists, the model correctly returns an empty list instead of inventing speculative fixes, avoiding the “noise” many baseline answers add.  
-- **Clear, concise patches when it does act:** In the minority of cases where it detects a bug (e.g., ex-13, 46, 212), the fix is usually correct, minimal, and easy to apply.
-
-weaknesses:
-
-- **Very low recall / coverage:** In a large majority of examples it outputs an empty list or only 1 trivial suggestion while obvious critical issues remain unfixed; it systematically misses circular bugs, null-checks, schema errors, etc.  
-- **Shallow analysis:** Even when it finds one problem it seldom looks deeper, so more severe or additional bugs in the same diff are left unaddressed.  
-- **Occasional technical inaccuracies:** A noticeable subset of suggestions are wrong (mis-ordered assertions, harmful Bash `set` change, false dangling-reference claims) or carry metadata errors (mis-labeling files as “python”).  
-- **Repetitive / derivative fixes:** Many outputs duplicate earlier simplistic ideas (e.g., single null-check) without new insight, showing limited reasoning breadth.
-
-### OpenAI codex-mini
-
-final score: **37.2**
-
-strengths:
-
-- **Can spot high-impact defects:** When it “locks on”, codex-mini often identifies the main runtime or security regression (e.g., race-conditions, logic inversions, blocking I/O, resource leaks) and proposes a minimal, direct patch that compiles and respects neighbouring style.
-- **Produces concise, scoped fixes:** Valid answers usually stay within the allowed 3-suggestion limit, reference only the added lines, and contain clear before/after snippets that reviewers can apply verbatim.
-- **Occasional broad coverage:** In a minority of cases the model catches multiple independent issues (logic + tests + docs) and outperforms every baseline answer, showing good contextual understanding of heterogeneous diffs.
-
-weaknesses:
-
-- **Output instability / format errors:** A very large share of responses are unusable—plain refusals, shell commands, or malformed/empty YAML—indicating brittle adherence to the required schema and tanking overall usefulness.
-- **Critical-miss rate:** Even when the format is correct the model frequently overlooks the single most serious bug the diff introduces, instead focusing on stylistic nits or speculative refactors.
-- **Introduces new problems:** Several suggestions add unsupported APIs, undeclared variables, wrong types, or break compilation, hurting trust in the recommendations.
-- **Rule violations:** It often edits lines outside the diff, exceeds the 3-suggestion cap, or labels cosmetic tweaks as “critical”, showing inconsistent guideline compliance.
-
 ### Claude-4 Opus
 
-final score: **32.8**
+Final score: **32.8**
 
 strengths:
 
@@ -334,7 +318,7 @@ weaknesses:
 
 ### Grok-4
 
-final score: **32.8**
+Final score: **32.8**
 
 strengths:
 
@@ -348,6 +332,23 @@ weaknesses:
 - **Inconsistent accuracy:** A noticeable subset of answers contain wrong or even harmful fixes (e.g., removing valid flags, creating compile errors, re-introducing bugs).  
 - **Limited breadth:** Even when it finds a real defect it rarely reports additional related problems that peers catch, leading to partial reviews.  
 - **Occasional guideline slips:** A few replies modify unchanged lines, suggest new imports, or duplicate suggestions, showing imperfect compliance with instructions.
+
+### GPT-4.1
+
+Final score: **26.5**
+
+strengths:
+
+- **Consistent format & guideline obedience:** Output is almost always valid YAML, within the 3-suggestion limit, and rarely touches lines not prefixed with "+".
+- **Low false-positive rate:** When no real defect exists, the model correctly returns an empty list instead of inventing speculative fixes, avoiding the "noise" many baseline answers add.
+- **Clear, concise patches when it does act:** In the minority of cases where it detects a bug (e.g., ex-13, 46, 212), the fix is usually correct, minimal, and easy to apply.
+
+weaknesses:
+
+- **Very low recall / coverage:** In a large majority of examples it outputs an empty list or only 1 trivial suggestion while obvious critical issues remain unfixed; it systematically misses circular bugs, null-checks, schema errors, etc.
+- **Shallow analysis:** Even when it finds one problem it seldom looks deeper, so more severe or additional bugs in the same diff are left unaddressed.
+- **Occasional technical inaccuracies:** A noticeable subset of suggestions are wrong (mis-ordered assertions, harmful Bash `set` change, false dangling-reference claims) or carry metadata errors (mis-labeling files as "python").
+- **Repetitive / derivative fixes:** Many outputs duplicate earlier simplistic ideas (e.g., single null-check) without new insight, showing limited reasoning breadth.
 
 ## Appendix - Example Results
 
