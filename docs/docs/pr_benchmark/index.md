@@ -95,6 +95,12 @@ A list of the models used for generating the baseline suggestions, and example r
       <td style="text-align:center;"><b>40.7</b></td>
     </tr>
     <tr>
+      <td style="text-align:left;">Claude-haiku-4.5</td>
+      <td style="text-align:left;">2025-10-01</td>
+      <td style="text-align:left;"></td>
+      <td style="text-align:center;"><b>40.7</b></td>
+    </tr>
+    <tr>
       <td style="text-align:left;">Claude-4-sonnet</td>
       <td style="text-align:left;">2025-05-14</td>
       <td style="text-align:left;">4096</td>
@@ -250,6 +256,23 @@ weaknesses:
 - **False or harmful fixes:** A notable number of suggestions mis-diagnose the code, touch unchanged lines, violate task rules, or would break compilation/runtime (wrong paths, bad types, guideline-forbidden advice).
 - **Priority mistakes:** The model often downgrades severe defects to “general” or upgrades cosmetic nits to “critical”, showing weak bug-severity judgment.
 - **Inconsistent quality:** Performance swings widely between excellent and poor; reviewers cannot predict whether a given answer will be thorough, partial, or incorrect.
+
+### Claude-haiku-4.5
+
+Final score: 40.7
+
+Strengths:
+
+- **Good format & clarity: Consistently produces valid YAML and readable, minimally-intrusive patches with clear before/after snippets, so its outputs are easy to apply.
+- **Basic bug-spotting ability: Often detects the most obvious new-line defect (e.g., syntax error, missing guard, wrong constant) and supplies a correct, concise fix; rarely ranks last in the set.
+- **Rule compliance in many cases: Usually stays within the 3-suggestion limit, touches only '+' lines, and avoids speculative refactors—returning an empty list when no code was added.
+
+Weaknesses:
+
+- **Shallow coverage: Frequently fixes just one surface-level issue and misses additional, higher-impact bugs that stronger reviewers catch, leaving regressions in place.
+- **Occasional incorrect or no-op patches: A noticeable share of suggestions either leave code unchanged, contain invalid code, or introduce new errors, lowering trust.
+- **Guideline slips: In several examples it edits unchanged lines, adds forbidden imports/version bumps, mis-labels severities, or supplies non-critical stylistic advice.
+- **Inconsistent diligence: Roughly a quarter of the cases return an empty list despite real problems, while others duplicate existing PR changes, indicating weak diff comprehension.
 
 ### Claude-4 Sonnet (4096 thinking tokens)
 
