@@ -89,14 +89,14 @@ A list of the models used for generating the baseline suggestions, and example r
       <td style="text-align:center;"><b>44.2</b></td>
     </tr>
     <tr>
-      <td style="text-align:left;">Claude-sonnet-4.5</td>
-      <td style="text-align:left;">2025-09-29</td>
+      <td style="text-align:left;">Claude-haiku-4.5</td>
+      <td style="text-align:left;">2025-10-01</td>
       <td style="text-align:left;"></td>
       <td style="text-align:center;"><b>40.7</b></td>
     </tr>
     <tr>
-      <td style="text-align:left;">Claude-haiku-4.5</td>
-      <td style="text-align:left;">2025-10-01</td>
+      <td style="text-align:left;">Claude-sonnet-4.5</td>
+      <td style="text-align:left;">2025-09-29</td>
       <td style="text-align:left;"></td>
       <td style="text-align:center;"><b>40.7</b></td>
     </tr>
