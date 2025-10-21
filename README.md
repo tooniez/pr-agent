@@ -17,7 +17,7 @@
 
 ## Open-Source AI-Powered Code Review Tool
 
-**PR-Agent** is an open-source, AI-powered code review agent. It is the legacy project from which Qodo Merge 💎, a separate commercial product, originated. PR-Agent is maintained by the community as a gift to the community. We are looking for external maintainers to help shape its future; please contact us if you are interested.
+**PR-Agent** is an open-source, AI-powered code review agent. It is the legacy project from which Qodo Merge 💎, a separate commercial product, originated. PR-Agent is maintained by the community as a gift to the community. We are looking for additional maintainers to help shape its future; please contact us if you are interested.
 
 **[Qodo Merge](https://qodo-merge-docs.qodo.ai/overview/pr_agent_pro/) 💎** is a separate, enterprise-grade product with its own distinct features, zero-setup, and priority support.
 
@@ -79,7 +79,7 @@ PR-Agent and Qodo Merge are now two completely different products that share a c
 ✅ **What you get (everything above plus):**
 - Zero-setup installation (2-minute GitHub app install)
 - Managed infrastructure and automatic updates
-- Advanced features: CI feedback, code suggestions tracking, compliance (rules), custom prompts
+- Advanced features: CI feedback, code suggestions tracking, compliance (rules), custom prompts, and more
 - Priority support and feature requests
 - Enhanced privacy with zero data retention
 - Free tier: 75 PR reviews/month per organization
