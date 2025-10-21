@@ -35,6 +35,12 @@ A list of the models used for generating the baseline suggestions, and example r
   </thead>
   <tbody>
     <tr>
+      <td style="text-align:left;">GPT-5-pro</td>
+      <td style="text-align:left;">2025-10-06</td>
+      <td style="text-align:left;"></td>
+      <td style="text-align:center;"><b>73.4</b></td>
+    </tr>
+    <tr>
       <td style="text-align:left;">GPT-5</td>
       <td style="text-align:left;">2025-08-07</td>
       <td style="text-align:left;">medium</td>
@@ -152,6 +158,24 @@ A list of the models used for generating the baseline suggestions, and example r
 </table>
 
 ## Results Analysis
+
+### GPT-5-pro
+
+Final score: **73.4**
+
+Strengths:
+
+- **High bug‐finding accuracy and depth:** In many cases the model uncovers the core compile-time or run-time regression that other answers miss and frequently combines several distinct critical issues into one reply.
+- **Actionable, minimal patches:** Suggestions almost always include clear before/after code blocks that touch only the added lines and respect the ≤3-suggestion limit, making them easy to apply.
+- **Good guideline compliance:** The model generally honours the task rules—no edits to unchanged code, no version bumps, no more than three items—and shows solid judgment about when an empty list is appropriate.
+- **Concise, impact-oriented reasoning:** Explanations focus on severity, crash potential and build breakage rather than style, helping reviewers prioritise fixes.
+
+Weaknesses:
+
+- **Coverage gaps:** In a noticeable minority of examples the model misses a higher-impact defect that several other answers catch, or returns an empty list despite clear bugs.
+- **Occasional incorrect or harmful fixes:** A few replies introduce new errors or rest on wrong assumptions about functionality or language-specific behavior.
+- **Formatting / guideline slips:** Sporadic duplication of suggestions, missing or empty `improved_code` blocks, or YAML mishaps undermine otherwise good answers.
+- **Uneven criticality judgement:** Some suggestions drift into low-impact territory while overlooking more severe problems, indicating inconsistent prioritisation.
 
 ### O3
 
@@ -387,7 +411,7 @@ Strengths:
 
 - **Consistent format & guideline obedience:** Output is almost always valid YAML, within the 3-suggestion limit, and rarely touches lines not prefixed with "+".
 - **Low false-positive rate:** When no real defect exists, the model correctly returns an empty list instead of inventing speculative fixes, avoiding the "noise" many baseline answers add.
-- **Clear, concise patches when it does act:** In the minority of cases where it detects a bug (e.g., ex-13, 46, 212), the fix is usually correct, minimal, and easy to apply.
+- **Clear, concise patches when it does act:** In the minority of cases where it detects a bug, the fix is usually correct, minimal, and easy to apply.
 
 Weaknesses:
 
