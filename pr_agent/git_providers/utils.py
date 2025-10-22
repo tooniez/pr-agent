@@ -1,6 +1,7 @@
 import copy
 import os
 import tempfile
+import traceback
 
 from dynaconf import Dynaconf
 from starlette_context import context
@@ -43,7 +44,6 @@ def apply_repo_settings(pr_url):
                                                 merge_enabled=False,  # Don't allow merging from other sources
                                                 )
                     except TypeError as e:
-                        import traceback
                         # Fallback for older Dynaconf versions that don't support these parameters
                         get_logger().warning(
                             "Your Dynaconf version does not support disabled 'load_dotenv'/'merge_enabled' parameters. "
