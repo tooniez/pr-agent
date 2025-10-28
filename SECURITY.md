@@ -59,6 +59,6 @@ steps:
 
 We take the security of PR-Agent seriously. If you discover a security vulnerability, please report it immediately to:
 
-Email: tal.r@qodo.ai
+Email: security@qodo.ai
 
 Please include a description of the vulnerability, steps to reproduce, and the affected PR-Agent version.
