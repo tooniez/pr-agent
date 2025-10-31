@@ -343,6 +343,19 @@ enable_global_pr_compliance = true
       </tr>
     </table>
 
+???+ example "Generic custom compliance checklist options"
+
+    <table>
+      <tr>
+        <td><b>enable_generic_custom_compliance_checklist</b></td>
+        <td>If set to true, the tool will apply generic custom compliance checklist rules. Default is true.</td>
+      </tr>
+      <tr>
+        <td><b>persist_generic_custom_compliance_checklist</b></td>
+        <td>If set to false, generic compliance checklist will not be kept with custom compliance. Default is false.</td>
+      </tr>
+    </table>
+
 
 ## Usage Tips
 
