@@ -71,10 +71,22 @@ A list of the models used for generating the baseline suggestions, and example r
       <td style="text-align:center;"><b>57.7</b></td>
     </tr>
     <tr>
+      <td style="text-align:left;">Gemini-3-pro-review</td>
+      <td style="text-align:left;">2025-11-18</td>
+      <td style="text-align:left;">high</td>
+      <td style="text-align:center;"><b>57.3</b></td>
+    </tr>
+    <tr>
       <td style="text-align:left;">Gemini-2.5-pro</td>
       <td style="text-align:left;">2025-06-05</td>
       <td style="text-align:left;">4096</td>
       <td style="text-align:center;"><b>56.3</b></td>
+    </tr>
+    <tr>
+      <td style="text-align:left;">Gemini-3-pro-review</td>
+      <td style="text-align:left;">2025-11-18</td>
+      <td style="text-align:left;">low</td>
+      <td style="text-align:center;"><b>55.6</b></td>
     </tr>
     <tr>
       <td style="text-align:left;">Claude-haiku-4.5</td>
@@ -218,6 +230,23 @@ Weaknesses:
 - **False or harmful fixes:** Several answers introduce new compilation errors, propose out-of-scope changes, or violate explicit rules (e.g., adding imports, version bumps, touching untouched lines), reducing trustworthiness.
 - **Shallow coverage:** Even when it identifies one real issue it often stops there, missing additional critical problems found by stronger peers; breadth and depth are inconsistent.
 
+### Gemini-3-pro-review (high thinking budget)
+
+Final score: **57.3**
+
+Strengths:
+
+- **Good schema & format discipline:** Consistently returns well-formed YAML with correct fields and respects the 3-suggestion limit; rarely breaks the required output structure.
+- **Reasonable guideline awareness:** Often recognises when a diff contains only data / translations and properly emits an empty list, avoiding over-reporting.
+- **Clear, actionable patches when correct:** When it does find a bug it usually supplies minimal-diff, compilable code snippets with concise explanations, and occasionally surfaces issues no other model spotted.
+
+Weaknesses:
+
+- **Spot-coverage gaps on critical defects:** In a large share of cases it overlooks the principal regression the tests were written for, while fixating on minor style or performance nits.
+- **False or speculative fixes:** A noticeable number of answers invent non-existent problems or propose changes that would not compile or would re-introduce removed behaviour.
+- **Guideline violations creep in:** Sometimes touches unchanged lines, adds forbidden imports / labels, or supplies more than "critical" advice, showing imperfect rule adherence.
+- **High variance / inconsistency:** Quality swings from best-in-class to harmful within consecutive examples, indicating unstable defect-prioritisation and review depth.
+
 ### Gemini-2.5 Pro (4096 thinking tokens)
 
 Final score: **56.3**
@@ -235,6 +264,23 @@ Weaknesses:
 - **Occasional guideline violations:** A noticeable minority of answers touch unchanged lines, exceed the 3-item cap, suggest adding imports, or drop the required YAML wrapper, leading to automatic downgrades.
 - **False positives / speculative fixes:** In several cases it flags non-issues (style, performance, redundant code) or supplies debatable “improvements”, lowering precision and sometimes breaching the “critical bugs only” rule.
 - **Inconsistent error coverage:** For certain domains (build scripts, schema files, test code) it either returns an empty list when real regressions exist or proposes cosmetic edits, indicating gaps in specialised knowledge.
+
+### Gemini-3-pro-review (low thinking budget)
+
+Final score: **55.6**
+
+Strengths:
+
+- **Concise, well-structured patches:** Suggestions are usually expressed in short, self-contained YAML items with clear before/after code blocks and just enough rationale, making them easy for reviewers to apply.
+- **Good eye for crash-level defects:** When the model does spot a problem it often focuses on high-impact issues such as compile-time errors, NPEs, nil-pointer races, buffer overflows, etc., and supplies a minimal, correct fix.
+- **High guideline compliance (format & scope):** In most cases it respects the 1-3-item limit and the "new lines only" rule, avoids changing imports, and keeps snippets syntactically valid.
+
+Weaknesses:
+
+- **Coverage inconsistency:** Many answers miss other obvious or even more critical regressions spotted by peers; breadth fluctuates from excellent to empty, leaving reviewers with partial insight.
+- **False positives & speculative advice:** A noticeable share of suggestions target stylistic or non-critical tweaks, or even introduce wrong changes, betraying occasional mis-reading of the diff and hurting trust.
+- **Rule violations still occur:** There are repeated instances of touching unchanged code, recommending version bumps/imports, mis-labelling severities, or outputting malformed snippets—showing lapses in instruction adherence.
+- **Quality variance / empty outputs:** Some responses provide no suggestions despite real bugs, while others supply harmful fixes; this volatility lowers overall reliability.
 
 ### Claude-haiku-4.5 (4096 thinking tokens)
 
