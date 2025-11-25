@@ -167,6 +167,12 @@ A list of the models used for generating the baseline suggestions, and example r
       <td style="text-align:center;"><b>32.4</b></td>
     </tr>
     <tr>
+      <td style="text-align:left;">Claude-opus-4.5</td>
+      <td style="text-align:left;">2025-11-01</td>
+      <td style="text-align:left;">high</td>
+      <td style="text-align:center;"><b>30.3</b></td>
+    </tr>
+    <tr>
       <td style="text-align:left;">GPT-4.1</td>
       <td style="text-align:left;">2025-04-14</td>
       <td style="text-align:left;"></td>
@@ -423,16 +429,33 @@ Final score: **32.8**
 
 Strengths:
 
-- **Focused and concise fixes:** When the model does detect a problem it usually proposes a minimal, well-scoped patch that compiles and directly addresses the defect without unnecessary noise.  
-- **Good critical-bug instinct:** It often prioritises show-stoppers (compile failures, crashes, security issues) over cosmetic matters and occasionally spots subtle issues that all other reviewers miss.  
-- **Clear explanations & snippets:** Explanations are short, readable and paired with ready-to-paste code, making the advice easy to apply.  
+- **Focused and concise fixes:** When the model does detect a problem it usually proposes a minimal, well-scoped patch that compiles and directly addresses the defect without unnecessary noise.
+- **Good critical-bug instinct:** It often prioritises show-stoppers (compile failures, crashes, security issues) over cosmetic matters and occasionally spots subtle issues that all other reviewers miss.
+- **Clear explanations & snippets:** Explanations are short, readable and paired with ready-to-paste code, making the advice easy to apply.
 
 Weaknesses:
 
-- **High miss rate:** In a large fraction of examples the model returned an empty list or covered only one minor issue while overlooking more serious newly-introduced bugs.  
-- **Inconsistent accuracy:** A noticeable subset of answers contain wrong or even harmful fixes (e.g., removing valid flags, creating compile errors, re-introducing bugs).  
-- **Limited breadth:** Even when it finds a real defect it rarely reports additional related problems that peers catch, leading to partial reviews.  
+- **High miss rate:** In a large fraction of examples the model returned an empty list or covered only one minor issue while overlooking more serious newly-introduced bugs.
+- **Inconsistent accuracy:** A noticeable subset of answers contain wrong or even harmful fixes (e.g., removing valid flags, creating compile errors, re-introducing bugs).
+- **Limited breadth:** Even when it finds a real defect it rarely reports additional related problems that peers catch, leading to partial reviews.
 - **Occasional guideline slips:** A few replies modify unchanged lines, suggest new imports, or duplicate suggestions, showing imperfect compliance with instructions.
+
+### Claude-Opus-4.5 (high thinking budget)
+
+Final score: **30.3**
+
+Strengths:
+
+- **High rule compliance & formatting:** Consistently produces valid YAML, respects the ≤3-suggestion limit, and usually confines edits to added lines, avoiding many guideline violations seen in peers.
+- **Low false-positive rate:** Tends to stay silent unless convinced of a real problem; when the diff is a pure version bump / docs tweak it often (correctly) returns an empty list, beating noisier baselines.
+- **Clear, focused patches when it fires:** In the minority of cases where it does spot a bug, it explains the issue crisply and supplies concise, copy-paste-able code snippets.
+
+Weaknesses:
+
+- **Very low recall:** In the vast majority of examples it misses obvious critical issues or suggests only a subset, frequently returning an empty list; this places it below most baselines on overall usefulness.
+- **Shallow coverage:** Even when it catches a defect it typically lists a single point and overlooks other high-impact problems present in the same diff.
+- **Occasional incorrect or incomplete fixes:** A non-trivial number of suggestions are wrong, compile-breaking, duplicate unchanged code, or touch out-of-scope lines, reducing trust.
+- **Inconsistent severity tagging & duplication:** Sometimes mis-labels critical vs general, repeats the same suggestion, or leaves `improved_code` blocks empty.
 
 ## Appendix - Example Results
 
