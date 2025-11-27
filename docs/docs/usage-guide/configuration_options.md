@@ -58,7 +58,7 @@ Then you can give a list of extra instructions to the `review` tool.
 
 ## Global configuration file 💎
 
-`Platforms supported: GitHub, GitLab, Bitbucket`
+`Platforms supported: GitHub, GitLab (cloud), Bitbucket (cloud)`
 
 If you create a repo called `pr-agent-settings` in your **organization**, its configuration file `.pr_agent.toml` will be used as a global configuration file for any other repo that belongs to the same organization.
 Parameters from a local `.pr_agent.toml` file, in a specific repo, will override the global configuration parameters.
@@ -69,17 +69,20 @@ For example, in the GitHub organization `Codium-ai`:
 
 - The repo [`https://github.com/Codium-ai/pr-agent`](https://github.com/Codium-ai/pr-agent/blob/main/.pr_agent.toml) inherits the global configuration file from `pr-agent-settings`.
 
-### Bitbucket Organization level configuration file 💎
+## Project/Group level configuration file 💎
+
+`Platforms supported: GitLab, Bitbucket Data Center`
+
+Create a repository named `pr-agent-settings` within a specific project (Bitbucket) or a group/subgroup (Gitlab). 
+The configuration file in this repository will apply to all repositories directly under the same project/group/subgroup.
+
+!!! note "Note"
+    For Gitlab, in case of a repository nested in several sub groups, the lookup for a pr-agent-settings repo will be only on one level above such repository.
+
+
+## Organization level configuration file 💎
 
 `Relevant platforms: Bitbucket Data Center`
-
-In Bitbucket Data Center, there are two levels where you can define a global configuration file:
-
-- Project-level global configuration:
-
-Create a repository named `pr-agent-settings` within a specific project. The configuration file in this repository will apply to all repositories under the same project.
-
-- Organization-level global configuration:
 
 Create a dedicated project to hold a global configuration file that affects all repositories across all projects in your organization.
 
