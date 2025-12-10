@@ -54,17 +54,17 @@ A `PR Code Verified` label indicates the PR code meets ticket requirements, but 
 
 #### Configuration options
 
-- 
+-
 
-    By default, the tool will automatically validate if the PR complies with the referenced ticket.
+    By default, the `review` tool will automatically validate if the PR complies with the referenced ticket.
     If you want to disable this feedback, add the following line to your configuration file:
-    
+
     ```toml
     [pr_reviewer]
     require_ticket_analysis_review=false
     ```
 
-- 
+-
 
     If you set:
     ```toml
@@ -72,8 +72,35 @@ A `PR Code Verified` label indicates the PR code meets ticket requirements, but 
     check_pr_additional_content=true
     ```
     (default: `false`)
-    
+
     the `review` tool will also validate that the PR code doesn't contain any additional content that is not related to the ticket. If it does, the PR will be labeled at best as `PR Code Verified`, and the `review` tool will provide a comment with the additional unrelated content found in the PR code.
+
+### Compliance tool
+
+The `compliance` tool also uses ticket context to validate that PR changes fulfill the requirements specified in linked tickets.
+
+#### Configuration options
+
+-
+
+    By default, the `compliance` tool will automatically validate if the PR complies with the referenced ticket.
+    If you want to disable ticket compliance checking in the compliance tool, add the following line to your configuration file:
+
+    ```toml
+    [pr_compliance]
+    require_ticket_analysis_review=false
+    ```
+
+-
+
+    If you set:
+    ```toml
+    [pr_compliance]
+    check_pr_additional_content=true
+    ```
+    (default: `false`)
+
+    the `compliance` tool will also validate that the PR code doesn't contain any additional content that is not related to the ticket.
 
 ## GitHub/Gitlab Issues Integration
 

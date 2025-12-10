@@ -330,6 +330,10 @@ enable_global_pr_compliance = true
 
     <table>
       <tr>
+        <td><b>require_ticket_analysis_review</b></td>
+        <td>If set to true, the tool will fetch and analyze ticket context for compliance validation. Default is true.</td>
+      </tr>
+      <tr>
         <td><b>enable_ticket_labels</b></td>
         <td>If set to true, the tool will add ticket compliance labels to the PR. Default is false.</td>
       </tr>
