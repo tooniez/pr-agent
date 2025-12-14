@@ -35,6 +35,12 @@ A list of the models used for generating the baseline suggestions, and example r
   </thead>
   <tbody>
     <tr>
+      <td style="text-align:left;">GPT-5.2</td>
+      <td style="text-align:left;">2025-12-11</td>
+      <td style="text-align:left;">medium</td>
+      <td style="text-align:center;"><b>80.8</b></td>
+    </tr>
+    <tr>
       <td style="text-align:left;">GPT-5-pro</td>
       <td style="text-align:left;">2025-10-06</td>
       <td style="text-align:left;"></td>
@@ -182,6 +188,22 @@ A list of the models used for generating the baseline suggestions, and example r
 </table>
 
 ## Results Analysis (Latest Additions)
+
+### GPT-5.2 ('medium' thinking budget)
+
+Final score: **80.8**
+
+Strengths:
+
+- **Broad, context-aware coverage:** Frequently identifies multiple high-impact faults in the added lines and proposes fixes that surpass or equal the best prior answer in many cases (≈60 % of the 399 comparisons).
+- **Actionable, minimal patches:** Tends to supply concise before/after code snippets that compile/run, keep changes local, and respect limits (≤3 suggestions, touched-lines only) – making the advice easy to apply.
+- **Clear reasoning & prioritisation:** Usually explains why an issue is critical, ranks it properly (e.g., crash > style), and avoids clutter, resulting in focused reviews that align with real test failures.
+
+Weaknesses:
+
+- **Critical omissions remain common:** In a sizeable minority of examples the model overlooks the single most blocking error (e.g., compile-time break, nil-deref, enum mismatch), causing it to trail a sharper peer answer.
+- **Occasional inaccurate or harmful fixes:** It sometimes introduces non-compiling code, speculative refactors, or misguided changes to unchanged lines, lowering reliability.
+- **Inconsistent guideline adherence:** A non-trivial set of replies add off-scope edits, non-critical style nits, or empty suggestion lists when clear bugs exist, leading to avoidable downgrades.
 
 ### GPT-5-pro
 
