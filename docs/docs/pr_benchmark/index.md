@@ -41,6 +41,12 @@ A list of the models used for generating the baseline suggestions, and example r
       <td style="text-align:center;"><b>80.8</b></td>
     </tr>
     <tr>
+      <td style="text-align:left;">GPT-5.2</td>
+      <td style="text-align:left;">2025-12-11</td>
+      <td style="text-align:left;">low</td>
+      <td style="text-align:center;"><b>79.1</b></td>
+    </tr>
+    <tr>
       <td style="text-align:left;">GPT-5-pro</td>
       <td style="text-align:left;">2025-10-06</td>
       <td style="text-align:left;"></td>
@@ -167,22 +173,10 @@ A list of the models used for generating the baseline suggestions, and example r
       <td style="text-align:center;"><b>32.8</b></td>
     </tr>
     <tr>
-      <td style="text-align:left;">Claude-3.7-sonnet</td>
-      <td style="text-align:left;">2025-02-19</td>
-      <td style="text-align:left;"></td>
-      <td style="text-align:center;"><b>32.4</b></td>
-    </tr>
-    <tr>
       <td style="text-align:left;">Claude-opus-4.5</td>
       <td style="text-align:left;">2025-11-01</td>
       <td style="text-align:left;">high</td>
       <td style="text-align:center;"><b>30.3</b></td>
-    </tr>
-    <tr>
-      <td style="text-align:left;">GPT-4.1</td>
-      <td style="text-align:left;">2025-04-14</td>
-      <td style="text-align:left;"></td>
-      <td style="text-align:center;"><b>26.5</b></td>
     </tr>
   </tbody>
 </table>
@@ -205,6 +199,24 @@ Weaknesses:
 - **Occasional inaccurate or harmful fixes:** It sometimes introduces non-compiling code, speculative refactors, or misguided changes to unchanged lines, lowering reliability.
 - **Inconsistent guideline adherence:** A non-trivial set of replies add off-scope edits, non-critical style nits, or empty suggestion lists when clear bugs exist, leading to avoidable downgrades.
 
+### GPT-5.2 ('low' thinking budget)
+
+Final score: **79.1**
+
+Strengths:
+
+- **Often spots multiple critical regressions:** In many cases the model is the only or one of very few answers that simultaneously catches several high-impact bugs (e.g. Examples 25, 55, 134, 206, 371).
+- **Produces concise, actionable patches:** Suggestions are usually well-scoped, supply minimal working code/YAML snippets and respect the three-item limit, so reviewers can apply them quickly.
+- **Good rule compliance most of the time:** It generally limits itself to '+' lines, avoids stylistic nit-picking, and honours output format and suggestion cap, which keeps responses focused.
+- **Broad language & domain coverage:** The model successfully reviews changes in many stacks (C/C++, Rust, Go, TS/JS, Python, Kotlin, SQL, CSS/MD/PO, CI scripts), showing solid cross-domain competence.
+
+Weaknesses:
+
+- **Misses higher-severity issues fairly often:** In a substantial fraction of examples it overlooks a more critical bug that other answers find (e.g. 6, 21, 30, 94, 310), lowering its relative rank.
+- **Occasional invented or non-critical advice:** Sometimes raises speculative, cosmetic or out-of-scope points (17, 106, 171, 230, 390), violating the "critical bugs only" rule and hurting ranking.
+- **Technical inaccuracies & unsafe fixes:** A number of replies introduce uncompilable code, wrong APIs, or contradictory edits (24, 341, 346, 375), indicating imperfect code-level precision.
+- **Inconsistency in restraint:** While usually concise, the model sporadically adds redundant or excessive suggestions, touches unchanged lines, or conflicts with its own fixes (238, 270, 330), showing uneven guideline adherence.
+
 ### GPT-5-pro
 
 Final score: **73.4**
@@ -222,41 +234,6 @@ Weaknesses:
 - **Occasional incorrect or harmful fixes:** A few replies introduce new errors or rest on wrong assumptions about functionality or language-specific behavior.
 - **Formatting / guideline slips:** Sporadic duplication of suggestions, missing or empty `improved_code` blocks, or YAML mishaps undermine otherwise good answers.
 - **Uneven criticality judgement:** Some suggestions drift into low-impact territory while overlooking more severe problems, indicating inconsistent prioritisation.
-
-### O3
-
-Final score: **62.5**
-
-Strengths:
-
-- **High precision & compliance:** Generally respects task rules (limits, “added lines” scope, YAML schema) and avoids false-positive advice, often returning an empty list when appropriate.  
-- **Clear, actionable output:** Suggestions are concise, well-explained and include correct before/after patches, so reviewers can apply them directly.  
-- **Good critical-bug detection rate:** Frequently spots compile-breakers or obvious runtime faults (nil / NPE, overflow, race, wrong selector, etc.), putting it at least on par with many peers.  
-- **Consistent formatting:** Produces syntactically valid YAML with correct labels, making automated consumption easy.
-
-Weaknesses:
-
-- **Narrow coverage:** Tends to stop after 1-2 issues; regularly misses additional critical defects that better answers catch, so it is seldom the top-ranked review.  
-- **Occasional inaccuracies:** A few replies introduce new bugs, give partial/duplicate fixes, or (rarely) violate rules (e.g., import suggestions), hurting trust.  
-- **Conservative bias:** Prefers silence over risk; while this keeps precision high, it lowers recall and overall usefulness on larger diffs.  
-- **Little added insight:** Rarely offers broader context, optimisations or holistic improvements, causing it to rank only mid-tier in many comparisons.
-
-### O4 Mini ('medium' thinking tokens)
-
-Final score: **57.7**
-
-Strengths:
-
-- **Good rule adherence:** Most answers respect the “new-lines only”, 3-suggestion, and YAML-schema limits, and frequently choose the safe empty list when the diff truly adds no critical bug.
-- **Clear, minimal patches:** When the model does spot a defect it usually supplies terse, valid before/after snippets and short, targeted explanations, making fixes easy to read and apply.
-- **Language & domain breadth:** Demonstrates competence across many ecosystems (C/C++, Java, TS/JS, Go, Rust, Python, Bash, Markdown, YAML, SQL, CSS, translation files, etc.) and can detect both compile-time and runtime mistakes.
-- **Often competitive:** In a sizeable minority of cases the model ties for best or near-best answer, occasionally being the only response to catch a subtle crash or build blocker.
-
-Weaknesses:
-
-- **High miss rate:** A large share of examples show the model returning an empty list or only minor advice while other reviewers catch clear, high-impact bugs—indicative of weak defect-detection recall.
-- **False or harmful fixes:** Several answers introduce new compilation errors, propose out-of-scope changes, or violate explicit rules (e.g., adding imports, version bumps, touching untouched lines), reducing trustworthiness.
-- **Shallow coverage:** Even when it identifies one real issue it often stops there, missing additional critical problems found by stronger peers; breadth and depth are inconsistent.
 
 ### Gemini-3-pro-review (high thinking budget)
 
