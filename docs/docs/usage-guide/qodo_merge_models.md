@@ -1,5 +1,5 @@
 
-The default models used by Qodo Merge 💎 (December 2025) are a combination of GPT-5, Haiku-4.5, and Gemini 2.5 Pro.
+The default models used by Qodo Merge 💎 (December 2025) are a combination of GPT-5.2, Haiku-4.5, and Gemini 2.5 Pro.
 
 ### Selecting a Specific Model
 
