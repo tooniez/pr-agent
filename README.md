@@ -1,36 +1,11 @@
-> [!NOTE]
-> PR Agent is an open-source project originally created by Qodo, the company behind next-generation AI code review. This repository represents the legacy version of the project and is provided as-is for the community to explore, learn from, and build upon. The project now has its first external maintainer, Naor (([@naorpeled](https://github.com/naorpeled))), and is currently in the process of being donated to an open-source foundation.
+# 🚀 AI Code Review with Qodo
 
-## 🚀 About
-PR Agent was the first AI assistant for pull requests, built by Qodo, and contributed to the open-source community.  
-It represents the first generation of intelligent code review - the project that started Qodo’s journey toward fully AI-driven development, Code Review.  
-If you enjoy this project, you’ll love the next-level PR Agent - Qodo free tier version, which is faster, smarter, and built for today’s workflows.  
+Qodo now offers a [free tier for AI code review](www.qodo.ai/get-started/) to easily integrate across CLI coding agents, IDE, GitHub and packed with feature rich capabilities for high-quality code review for context-aware codebases.
 
-🚀 Qodo includes a free user trial, 250 tokens, bonus tokens for active contributors, and 50% more advanced features than this open-source version.
-
-If you have an open-source project, you can get the Qodo paid version for free for your project, powered by Google Gemini 2.5 Pro – [https://www.qodo.ai/solutions/open-source/](https://www.qodo.ai/solutions/open-source/)
-
----
-
-## ✨ Advanced Features in Qodo
-
-### 🧭 PR → Ticket Automation  
-Seamlessly links pull requests to your project tracking system for end-to-end visibility.
-
-### ✅ Auto Best Practices  
-Learns your team’s standards and automatically enforces them during code reviews.
-
-### 🧪 Code Validation  
-Performs advanced static and semantic analysis to catch issues before merge.
-
-### 💬 PR Chat Interface  
-Lets you converse with your PR to explain, summarize, or suggest improvements instantly.
-
-### 🔍 Impact Evaluation  
-Analyzes the business and technical effect of each change before approval.
-
----
+Note: this PR Agent repository was originally created by Qodo as a code review bot and now contributed to the open-source community. It is superseded by Qodo hosted solution with a free tier available to all developers which we highly recommend converting to for a better UX, feature rich and high quality code review experience.
 
 ## ❤️ Community
-This open-source release remains here as a community contribution from Qodo — the origin of modern AI-powered code collaboration.  
-We’re proud to share it and inspire developers worldwide.
+
+This open-source release remains here as a community contribution from Qodo — the origin of modern AI-powered code collaboration. We’re proud to share it and inspire developers worldwide.
+
+The project now has its first external maintainer, Naor ([@naorpeled](https://github.com/naorpeled)), and is currently in the process of being donated to an open-source foundation.
