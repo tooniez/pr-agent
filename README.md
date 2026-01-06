@@ -4,18 +4,15 @@
 <img alt="GitHub" src="https://img.shields.io/github/last-commit/Codium-ai/pr-agent/main?style=for-the-badge" height="20">
 </a>
 
+<br />
+
 # 🚀 The first AI Code Reviewer
 
+PR-Agent is an open-source, AI-powered code review agent. It is a legacy project of Qodo that is now maintained by the community.
+
+> NOTE: It is not related to the main product offering of Qodo's code review product.
+
 Qodo now offers a [free tier for AI code review](https://www.qodo.ai/get-started/) to easily integrate with GitHub, GitLab, Bitbucket, and Azure DevOps, with feature-rich capabilities for high-quality context-aware code reviews.
-
-Note: this PR Agent repository was originally created by Qodo as a code review bot and now contributed to the open-source community. It is superseded by Qodo's hosted solution with a free tier available to all developers, which we highly recommend converting to for a better UX, feature-rich, and high-quality code review experience.
-
-## ❤️ Community
-
-This open-source release remains here as a community contribution from Qodo — the origin of modern AI-powered code collaboration. We’re proud to share it and inspire developers worldwide.
-
-The project now has its first external maintainer, Naor ([@naorpeled](https://github.com/naorpeled)), and is currently in the process of being donated to an open-source foundation.
-
 
 ## Table of Contents
 
@@ -27,7 +24,7 @@ The project now has its first external maintainer, Naor ([@naorpeled](https://gi
 - [How It Works](#how-it-works)
 - [Data Privacy](#data-privacy)
 - [Contributing](#contributing)
-
+- [Community](#Community)
 
 ## Getting Started
 
@@ -264,3 +261,10 @@ https://openai.com/enterprise-privacy
 ## Contributing
 
 To contribute to the project, get started by reading our [Contributing Guide](https://github.com/qodo-ai/pr-agent/blob/b09eec265ef7d36c232063f76553efb6b53979ff/CONTRIBUTING.md).
+
+
+## ❤️ Community
+
+This open-source release remains here as a community contribution from Qodo — the origin of modern AI-powered code collaboration. We’re proud to share it and inspire developers worldwide.
+
+The project now has its first external maintainer, Naor ([@naorpeled](https://github.com/naorpeled)), and is currently in the process of being donated to an open-source foundation.
