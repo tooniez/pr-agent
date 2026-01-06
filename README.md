@@ -4,7 +4,7 @@
 <img alt="GitHub" src="https://img.shields.io/github/last-commit/Codium-ai/pr-agent/main?style=for-the-badge" height="20">
 </a>
 
-# 🚀 AI Code Review with Qodo
+# 🚀 The first AI Code Reviewer
 
 Qodo now offers a [free tier for AI code review](https://www.qodo.ai/get-started/) to easily integrate with GitHub, GitLab, Bitbucket, and Azure DevOps, with feature-rich capabilities for high-quality context-aware code reviews.
 
