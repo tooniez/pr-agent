@@ -1,3 +1,5 @@
+<img width="697" height="176" alt="image" src="https://github.com/user-attachments/assets/81c96bcc-4ec3-45b2-a69e-d116bb75b22b" />
+
 <a href="https://github.com/Codium-ai/pr-agent/commits/main">
 <img alt="GitHub" src="https://img.shields.io/github/last-commit/Codium-ai/pr-agent/main?style=for-the-badge" height="20">
 </a>
