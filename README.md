@@ -24,7 +24,6 @@ Qodo now offers a [free tier for AI code review](https://www.qodo.ai/get-started
 - [How It Works](#how-it-works)
 - [Data Privacy](#data-privacy)
 - [Contributing](#contributing)
-- [Community](#Community)
 
 ## Getting Started
 
@@ -161,7 +160,7 @@ pr-agent --pr_url https://github.com/owner/repo/pull/123 review
 
 <div style="text-align:left;">
 
-PR-Agent and Qodo Merge offer comprehensive pull request functionalities integrated with various git providers:
+PR-Agent offers comprehensive pull request functionalities integrated with various git providers:
 
 |                                                         |                                                                                        | GitHub | GitLab | Bitbucket | Azure DevOps | Gitea |
 |---------------------------------------------------------|----------------------------------------------------------------------------------------|:------:|:------:|:---------:|:------------:|:-----:|
@@ -248,8 +247,6 @@ It does not have 'edit' access to your repo, for example, so it cannot update th
 The following diagram illustrates PR-Agent tools and their flow:
 
 ![PR-Agent Tools](https://www.qodo.ai/images/pr_agent/diagram-v0.9.png)
-
-Check out the [PR Compression strategy](https://qodo-merge-docs.qodo.ai/core-abilities/#pr-compression-strategy) page for more details on how we convert a code diff to a manageable LLM prompt
 
 ## Data Privacy
 
