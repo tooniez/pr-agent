@@ -69,8 +69,10 @@ class TestGetMaxTokens:
     @pytest.mark.parametrize("model", [
         "gemini/gemini-3-pro-preview",
         "vertex_ai/gemini-3-pro-preview",
+        "gemini/gemini-3.1-pro-preview",
+        "vertex_ai/gemini-3.1-pro-preview",
     ])
-    def test_gemini_3_pro_preview(self, monkeypatch, model):
+    def test_gemini_3_and_3_1_pro_preview(self, monkeypatch, model):
         fake_settings = type("", (), {
             "config": type("", (), {
                 "custom_model_max_tokens": 0,
