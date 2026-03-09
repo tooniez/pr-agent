@@ -43,7 +43,3 @@
 * [Interactivity](core-abilities/interactivity.md)
 * [Local and global metadata](core-abilities/metadata.md)
 * [Self-reflection](core-abilities/self_reflection.md)
-
-## PR Benchmark
-
-* [PR Benchmark](pr_benchmark/index.md)
