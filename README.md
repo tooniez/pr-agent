@@ -73,8 +73,6 @@ pr-agent --pr_url https://github.com/owner/repo/pull/123 review
 [//]: # (## Aug 8, 2025)
 
 [//]: # ()
-[//]: # (Added full support for GPT-5 models. View the [benchmark results]&#40;https://qodo-merge-docs.qodo.ai/pr_benchmark/#pr-benchmark-results&#41; for details on the performance of GPT-5 models in PR-Agent.)
-
 [//]: # ()
 [//]: # ()
 [//]: # (## Jul 17, 2025)
