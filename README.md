@@ -75,19 +75,6 @@ pr-agent --pr_url https://github.com/owner/repo/pull/123 review
 [//]: # ()
 [//]: # ()
 [//]: # ()
-[//]: # (## Jul 17, 2025)
-
-[//]: # ()
-[//]: # (Introducing `/compliance`, a new Qodo Merge 💎 tool that runs comprehensive checks for security, ticket requirements, codebase duplication, and custom organizational rules. )
-
-[//]: # ()
-[//]: # (<img width="384" alt="compliance-image" src="https://codium.ai/images/pr_agent/compliance_partial.png"/>)
-
-[//]: # ()
-[//]: # (Read more about it [here]&#40;https://docs.pr-agent.ai/tools/compliance/&#41;)
-
-[//]: # ()
-[//]: # ()
 [//]: # (## Jul 1, 2025)
 
 [//]: # (You can now receive automatic feedback from Qodo Merge in your local IDE after each commit. Read more about it [here]&#40;https://github.com/qodo-ai/agents/tree/main/agents/qodo-merge-post-commit&#41;.)
@@ -98,15 +85,6 @@ pr-agent --pr_url https://github.com/owner/repo/pull/123 review
 
 [//]: # ()
 [//]: # (v0.30 was [released]&#40;https://github.com/qodo-ai/pr-agent/releases&#41;)
-
-[//]: # ()
-[//]: # ()
-[//]: # (## Jun 3, 2025)
-
-[//]: # ()
-[//]: # (Qodo Merge now offers a simplified free tier 💎.)
-
-[//]: # (Organizations can use Qodo Merge at no cost, with a [monthly limit]&#40;https://docs.pr-agent.ai/installation/qodo_merge/#cloud-users&#41; of 75 PR reviews per organization.)
 
 [//]: # ()
 [//]: # ()
@@ -123,16 +101,6 @@ pr-agent --pr_url https://github.com/owner/repo/pull/123 review
 
 [//]: # ()
 [//]: # ()
-[//]: # (## Apr 16, 2025)
-
-[//]: # ()
-[//]: # (New tool for Qodo Merge 💎 - `/scan_repo_discussions`.)
-
-[//]: # ()
-[//]: # (<img width="635" alt="image" src="https://codium.ai/images/pr_agent/scan_repo_discussions_2.png" />)
-
-[//]: # ()
-[//]: # (Read more about it [here]&#40;https://docs.pr-agent.ai/tools/scan_repo_discussions/&#41;.)
 
 ## Why Use PR-Agent?
 
@@ -177,15 +145,12 @@ PR-Agent offers comprehensive pull request functionalities integrated with vario
 |                                                         | [Actions](https://docs.pr-agent.ai/installation/github/#run-as-a-github-action)                              |   ✅   |   ✅   |    ✅     |      ✅      |       |
 |                                                         |                                                                                                                     |        |        |           |              |       |
 | [CORE](https://docs.pr-agent.ai/core-abilities/) | [Adaptive and token-aware file patch fitting](https://docs.pr-agent.ai/core-abilities/compression_strategy/) |   ✅   |   ✅   |    ✅     |      ✅      |       |
-|                                                         | [Chat on code suggestions](https://docs.pr-agent.ai/core-abilities/chat_on_code_suggestions/)                |   ✅   |  ✅   |           |              |       |
 |                                                         | [Dynamic context](https://docs.pr-agent.ai/core-abilities/dynamic_context/)                                  |   ✅   |   ✅   |    ✅     |      ✅      |       |
 |                                                         | [Fetching ticket context](https://docs.pr-agent.ai/core-abilities/fetching_ticket_context/)                  |   ✅    |  ✅    |     ✅     |              |       |
-|                                                         | [Incremental Update](https://docs.pr-agent.ai/core-abilities/incremental_update/)                            |   ✅    |       |           |              |       |
 |                                                         | [Interactivity](https://docs.pr-agent.ai/core-abilities/interactivity/)                                      |   ✅   |  ✅   |           |              |       |
 |                                                         | [Local and global metadata](https://docs.pr-agent.ai/core-abilities/metadata/)                               |   ✅   |   ✅   |    ✅     |      ✅      |       |
 |                                                         | [Multiple models support](https://docs.pr-agent.ai/usage-guide/changing_a_model/)                            |   ✅   |   ✅   |    ✅     |      ✅      |       |
 |                                                         | [PR compression](https://docs.pr-agent.ai/core-abilities/compression_strategy/)                              |   ✅   |   ✅   |    ✅     |      ✅      |       |
-|                                                         | [RAG context enrichment](https://docs.pr-agent.ai/core-abilities/rag_context_enrichment/)                    |   ✅    |       |    ✅     |              |       |
 |                                                         | [Self reflection](https://docs.pr-agent.ai/core-abilities/self_reflection/)                                  |   ✅   |   ✅   |    ✅     |      ✅      |       |
 
 [//]: # (- Support for additional git providers is described in [here]&#40;./docs/Full_environments.md&#41;)
