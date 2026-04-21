@@ -1,10 +1,25 @@
-<a href="https://github.com/Codium-ai/pr-agent/commits/main">
-<img alt="GitHub" src="https://img.shields.io/github/last-commit/Codium-ai/pr-agent/main?style=for-the-badge" height="20">
-</a>
+
 
 <br />
 
-# 🚀 PR Agent - The Original Open-Source PR Reviewer.
+<div align="center">
+
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://codium.ai/images/pr_agent/logo-dark.png" width="330">
+  <source media="(prefers-color-scheme: light)" srcset="https://codium.ai/images/pr_agent/logo-light.png" width="330">
+  <img src="https://codium.ai/images/pr_agent/logo-light.png" alt="logo" width="330">
+
+</picture>
+<br>
+The Original Open-Source PR Reviewer
+<br><br>
+<a href="https://github.com/Codium-ai/pr-agent/commits/main">
+<img alt="GitHub" src="https://img.shields.io/github/last-commit/Codium-ai/pr-agent/main?style=for-the-badge" height="20">
+</a>
+</div>
+
+---
 
  This repository contains the open-source PR Agent Project. 
  It is not the Qodo free tier.
