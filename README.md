@@ -35,7 +35,6 @@ What else changed:
 - [Why Use PR-Agent?](#why-use-pr-agent)
 - [Features](#features)
 - [See It in Action](#see-it-in-action)
-- [Try It Now](#try-it-now)
 - [How It Works](#how-it-works)
 - [Data Privacy](#data-privacy)
 - [Contributing](#contributing)
