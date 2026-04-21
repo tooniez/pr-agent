@@ -202,21 +202,6 @@ ___
 
 <hr>
 
-## Try It Now
-
-Try the GPT-5 powered PR-Agent instantly on _your public GitHub repository_. Just mention `@CodiumAI-Agent` and add the desired command in any PR comment. The agent will generate a response based on your command.
-For example, add a comment to any pull request with the following text:
-
-```
-@CodiumAI-Agent /review
-```
-
-and the agent will respond with a review of your PR.
-
-Note that this is a promotional bot, suitable only for initial experimentation.
-It does not have 'edit' access to your repo, for example, so it cannot update the PR description or add labels (`@CodiumAI-Agent /describe` will publish PR description as a comment). In addition, the bot cannot be used on private repositories, as it does not have access to the files there.
-
-
 ## How It Works
 
 The following diagram illustrates PR-Agent tools and their flow:
