@@ -37,6 +37,11 @@ FROM base AS gitea_app
 ADD pr_agent pr_agent
 CMD ["python", "-m", "gunicorn", "-k", "uvicorn.workers.UvicornWorker", "-c", "pr_agent/servers/gunicorn_config.py","pr_agent.servers.gitea_app:app"]
 
+FROM base AS mosaico_agent
+ADD pr_agent pr_agent
+EXPOSE 9000
+CMD ["python", "pr_agent/mosaico/server.py"]
+
 
 FROM base AS test
 ADD requirements-dev.txt .

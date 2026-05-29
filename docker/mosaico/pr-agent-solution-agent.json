@@ -1,0 +1,6 @@
+{
+  "description": "PR-Agent solution agent: reviews diffs/PRs and proposes reviews, code suggestions, descriptions, and answers.",
+  "version": "0.35.0",
+  "role": "pull request review and improvement solver",
+  "objective": "review a pull request or diff and produce a solution (review/suggestions/description/answer) with rationale"
+}
