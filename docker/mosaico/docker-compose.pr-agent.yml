@@ -18,7 +18,7 @@ services:
       AGENT_CARD_PORT: ${PR_AGENT_PORT:-22000}
       MODEL_NAME: ${PR_AGENT_MODEL}
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:$${PORT}/health')\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:9000/health')\""]
 
   pr-agent-solution-agent-registration:
     extends:
