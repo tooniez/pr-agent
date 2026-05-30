@@ -53,8 +53,9 @@ def _build_skills() -> list:
         AgentSkill(
             id="ask",
             name="Ask",
-            description="Answer a free-text question about a pull request or about code.",
-            tags=["ask", "question", "pull-request"],
+            description="Answer a free-text question scoped to a specific pull request or "
+                        "supplied git diff (requires a PR URL or a diff to answer).",
+            tags=["ask", "question", "pull-request", "diff"],
             examples=["What does this PR change?",
                       "Ask https://github.com/org/repo/pull/1 what the risk is"],
         ),
@@ -73,8 +74,12 @@ def build_agent_card() -> AgentCard:
     ]
     return AgentCard(
         name=AGENT_NAME,
-        description="PR-Agent solution agent: reviews diffs/PRs and proposes reviews, "
-                    "code suggestions, descriptions, and answers.",
+        description="PR-Agent solution agent for pull-request and unified-diff code review. "
+                    "Given a pull-request URL or a supplied git diff, it produces a structured "
+                    "code review (key issues, security concerns, effort estimate), inline code "
+                    "suggestions, a generated PR title and description, and answers to questions "
+                    "about that specific pull request or diff. Every action is anchored to a "
+                    "concrete pull request or git diff supplied in the request.",
         url=_card_url(),
         version=get_version(),
         default_input_modes=["text", "text/plain"],

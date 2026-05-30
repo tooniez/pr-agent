@@ -52,8 +52,10 @@ def mosaico_log_context(meta, context_id):
 def langfuse_span(meta, context_id):
     """Open a Langfuse span linking this run into the MOSAICO trace.
 
-    Maps raw mosaico-root-task-id -> trace, raw mosaico-super-task-id -> parent
-    observation, context_id -> session, mosaico-root-task-name -> trace_name.
+    Applies the W3C Trace Context transform (spec §observability lines 47-51):
+    mosaico-root-task-id with the four UUIDv4 hyphens removed -> trace_id (32 hex),
+    last 16 hex digits of the de-hyphenated mosaico-super-task-id -> parent observation
+    (parent_span_id, 16 hex), context_id -> session, mosaico-root-task-name -> trace_name.
     All wrapped in try/except -> degrade to untraced. No-op when meta is empty."""
     if not meta:
         yield
@@ -63,9 +65,11 @@ def langfuse_span(meta, context_id):
         lf = get_client()
         trace_ctx = {}
         if meta.get("mosaico-root-task-id"):
-            trace_ctx["trace_id"] = meta["mosaico-root-task-id"]        # RAW
+            # W3C trace-id: 32 lowercase hex digits, no hyphens (spec §observability lines 47-48).
+            trace_ctx["trace_id"] = meta["mosaico-root-task-id"].replace("-", "")
         if meta.get("mosaico-super-task-id"):
-            trace_ctx["parent_span_id"] = meta["mosaico-super-task-id"]  # RAW
+            # W3C parent-id: last 16 hex digits (spec §observability lines 49-51).
+            trace_ctx["parent_span_id"] = meta["mosaico-super-task-id"].replace("-", "")[-16:]
         with propagate_attributes(session_id=context_id, trace_name=meta.get("mosaico-root-task-name")):
             with lf.start_as_current_observation(as_type="span", name=AGENT_NAME,
                                                  **({"trace_context": trace_ctx} if trace_ctx else {})):
