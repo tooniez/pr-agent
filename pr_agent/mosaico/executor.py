@@ -1,4 +1,4 @@
-"""MOSAICO A2A executor (plan §4.3) + the /health LLM probe (§7/§4.8#5).
+"""MOSAICO A2A executor + the /health LLM probe.
 
 PRAgentExecutor.execute runs a single non-streaming path: it FIRST installs a
 request-scoped deepcopy of global_settings into starlette_context (so the tool run
@@ -50,7 +50,7 @@ class PRAgentExecutor(AgentExecutor):
 async def health_check() -> str:
     """LLM-connectivity probe for /health. NO-RETRY: bypasses pr-agent's retry-wrapped
     LiteLLMAIHandler.chat_completion (which would retry-hang a down LLM) and issues a
-    single litellm.acompletion, after applying the MOSAICO/Stage-1 LLM settings."""
+    single litellm.acompletion, after applying the MOSAICO LLM settings."""
     try:
         import litellm
 

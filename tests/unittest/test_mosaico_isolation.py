@@ -1,4 +1,4 @@
-"""Per-request settings-isolation concurrency gate (plan §4.3 / §4.8 #7).
+"""Per-request settings-isolation concurrency gate.
 
 Fires TWO execute() calls concurrently via asyncio.gather. Each coroutine runs inside
 its own starlette_context scope (request_cycle_context — exactly what RawContextMiddleware

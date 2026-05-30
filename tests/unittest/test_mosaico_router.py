@@ -1,4 +1,4 @@
-"""Tests for the MOSAICO dispatch router (plan §4.8 test 2 + §5 capture/fallback).
+"""Tests for the MOSAICO dispatch router (capture/fallback behavior).
 
 Pins: each path returns a string and NEVER raises; no-files/no-suggestions/empty-ask
 -> empty-fallback string; a tool that raises (monkeypatched) -> error-fallback string
@@ -262,7 +262,7 @@ class TestPathFreeText:
 
 
 # ---------------------------------------------------------------------------
-# §5 defensive capture / fallbacks
+# defensive capture / fallbacks
 # ---------------------------------------------------------------------------
 class TestDefensiveCapture:
     @pytest.mark.asyncio
@@ -279,7 +279,7 @@ class TestDefensiveCapture:
     @pytest.mark.asyncio
     async def test_ok_but_no_artifact_returns_empty_fallback(self, monkeypatch, restore_settings):
         async def fake_handle_request(self, pr_url, request, notify=None):
-            # ok=True but never sets data["artifact"] (early-return paths in §5)
+            # ok=True but never sets data["artifact"] (early-return paths)
             return True
 
         from pr_agent.agent.pr_agent import PRAgent

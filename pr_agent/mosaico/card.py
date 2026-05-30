@@ -1,4 +1,4 @@
-"""Builds the MOSAICO A2A agent card for pr-agent (plan §4.4).
+"""Builds the MOSAICO A2A agent card for pr-agent.
 
 Mirrors docstring-agent/__main__.py:36-68. The observability extension is advertised
 as required=True; streaming is advertised as False (load-bearing: the reference agent

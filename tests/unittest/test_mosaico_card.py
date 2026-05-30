@@ -1,4 +1,4 @@
-"""Tests for the MOSAICO agent card (plan §4.8 test 1)."""
+"""Tests for the MOSAICO agent card."""
 import json
 import os
 
@@ -53,7 +53,7 @@ class TestAgentCard:
 
 class TestRoutingDistinctiveness:
     """Lock the PR/diff niche so the card stays distinct from the generic Mini-SWE-agent
-    in the repository's vector-similarity routing (Checkpoint 2)."""
+    in the repository's vector-similarity routing."""
 
     def test_description_names_pr_and_diff_niche(self):
         desc = build_agent_card().description.lower()

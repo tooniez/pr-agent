@@ -1,4 +1,4 @@
-"""Stage-1 tests for pr_agent/mosaico/env_bridge.py and observability.py (plan §3.5).
+"""Tests for pr_agent/mosaico/env_bridge.py and observability.py.
 
 These tests mutate the module-global ``global_settings`` (no request context is active),
 so the ``restore_settings`` fixture snapshots and restores the 7 settings keys the
@@ -105,7 +105,7 @@ class TestApplyMosaicoEnv:
 
     def test_apply_mosaico_env_registers_langfuse_on_real_handler(
             self, restore_settings, clear_mosaico_env, monkeypatch):
-        """Stage-1 integration test (§3.5 #8): bridge populates settings -> a REAL
+        """Integration test: bridge populates settings -> a REAL
         LiteLLMAIHandler() applies them to the litellm module attributes."""
         monkeypatch.setenv("LANGFUSE_HOST", "https://lf.example")
         monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk")

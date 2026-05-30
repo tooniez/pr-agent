@@ -1,7 +1,6 @@
-"""Sub-step 2a tests for DiffInputProvider + provider_registration (plan §4.8 test 3)
-plus the §6 spike gate (criteria 3, 4, 8): drive /review and /improve end-to-end
-through DiffInputProvider with a mocked LLM, assert non-empty captured artifact, no
-un-stubbed provider method raises, and the incremental path never fires.
+"""Tests for DiffInputProvider + provider_registration: drive /review and /improve
+end-to-end through DiffInputProvider with a mocked LLM, assert non-empty captured
+artifact, no un-stubbed provider method raises, and the incremental path never fires.
 
 asyncio_mode=auto."""
 import pytest
@@ -156,7 +155,7 @@ def mosaico_input():
 
 
 # ---------------------------------------------------------------------------
-# Spike gate: §6 criteria 3, 4, 8 — drive /review and /improve end-to-end.
+# Drive /review and /improve end-to-end through DiffInputProvider.
 # ---------------------------------------------------------------------------
 
 _INCREMENTAL_ONLY_METHODS = (
@@ -231,7 +230,7 @@ def _setup_request_settings(verb_provider_input):
 
 @pytest.fixture
 def isolated_settings():
-    """Snapshot/restore the settings keys the spike mutates, leaving global_settings
+    """Snapshot/restore the settings keys these tests mutate, leaving global_settings
     exactly as found (incl. MOSAICO.INPUT present/absent state)."""
     keys = ["CONFIG.GIT_PROVIDER", "CONFIG.PUBLISH_OUTPUT"]
     sentinel = object()

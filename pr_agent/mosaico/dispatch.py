@@ -1,5 +1,5 @@
 """Text router: turn inbound MOSAICO text into a pr-agent command and return the
-rendered markdown (plan §5, §6.1).
+rendered markdown.
 
 Three paths:
   (a) a host PR URL  -> run the verb via the host provider (URL drives provider).

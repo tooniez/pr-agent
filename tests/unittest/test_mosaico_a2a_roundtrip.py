@@ -1,4 +1,4 @@
-"""End-to-end A2A round-trip through the real MOSAICO server stack (Checkpoint 3).
+"""End-to-end A2A round-trip through the real MOSAICO server stack.
 
 Drives an HTTP POST through the whole server (ASGI -> A2AStarletteApplication ->
 executor -> RawContextMiddleware -> route_and_run -> real PRReviewer with
@@ -94,8 +94,17 @@ def _live_llm_creds_absent() -> bool:
 
 class TestA2ARoundTripStubbedLLM:
     @pytest.mark.asyncio
-    async def test_warmup_health_and_card(self):
+    async def test_warmup_health_and_card(self, monkeypatch):
         """Warm-up: /health and the agent card respond over the same transport."""
+        import litellm
+
+        # health_check() issues a direct, non-retry litellm.acompletion probe (NOT
+        # LiteLLMAIHandler.chat_completion), so stub acompletion here to keep /health
+        # healthy offline — no LLM/network in CI. health_check ignores the response body.
+        async def fake_acompletion(**kwargs):
+            return {"choices": [{"message": {"content": "ping"}}]}
+        monkeypatch.setattr(litellm, "acompletion", fake_acompletion)
+
         from pr_agent.mosaico.server import build_app
         app = build_app()
         async with _build_client(app) as client:

@@ -1,4 +1,4 @@
-"""MOSAICO A2A server (plan §4.2, §4.3 build_app, §7.1b).
+"""MOSAICO A2A server.
 
 Mounts the A2A SDK app (POST / for message/send, GET /.well-known/agent-card.json)
 plus a GET /health route, with RawContextMiddleware on the SAME app so every request
@@ -70,7 +70,7 @@ def _configure_runtime() -> None:
 
 
 def _configure_langfuse() -> None:
-    """Construct the Langfuse client ONCE with a2a transport spans suppressed (§7.1b).
+    """Construct the Langfuse client ONCE with a2a transport spans suppressed.
     No-op when creds are absent; degrades on any failure."""
     if not langfuse_env_present():
         return

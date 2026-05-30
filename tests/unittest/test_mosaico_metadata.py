@@ -1,4 +1,4 @@
-"""Observability metadata + langfuse_span no-op-safety tests (plan §4.8 #6).
+"""Observability metadata + langfuse_span no-op-safety tests.
 
 parse_observability_metadata: all-3 -> all 3; missing-one -> PARTIAL dict (not {});
 non-string value -> key omitted; non-Mapping -> {}; never raises.

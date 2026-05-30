@@ -1,4 +1,4 @@
-"""Tests for PRAgentExecutor.execute (plan §4.8 #4).
+"""Tests for PRAgentExecutor.execute.
 
 Drives execute() with a fake RequestContext + a recording EventQueue, and a spy
 TaskUpdater that captures complete()/failed() calls. asyncio_mode=auto."""

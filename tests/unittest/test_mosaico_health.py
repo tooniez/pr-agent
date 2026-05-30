@@ -1,4 +1,4 @@
-"""HTTP /health route tests (plan §4.8 #5).
+"""HTTP /health route tests.
 
 Uses Starlette TestClient against build_app(); monkeypatches health_check (the no-retry
 behavior itself was proven in 2c). Verifies the route + 200/503 response shape.

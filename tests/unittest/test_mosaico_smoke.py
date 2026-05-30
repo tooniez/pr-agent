@@ -1,4 +1,4 @@
-"""Full-path smoke test (plan §4.8 #8).
+"""Full-path smoke test.
 
 Drives ONE message/send through the SDK via Starlette TestClient against build_app()
 (REAL RawContextMiddleware mounted), proving the full path:
@@ -121,6 +121,6 @@ class TestSmokeFullPath:
         if status:
             assert status.get("state") == "completed", f"task failed: {result}"
         text = _extract_text(result)
-        # The defensive empty-fallback string (§5), and no exception escaped.
+        # The defensive empty-fallback string, and no exception escaped.
         assert "no output produced" in text, text
         assert not text.startswith("Error:"), text
