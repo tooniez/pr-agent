@@ -37,3 +37,37 @@ python register-agent.py
   `docker/agent-registrations/` at deploy time).
 - `AGENT_NAME` is injected as the agent name; the card URL is set as the top-level
   `a2aAgentCardUrl` and `deployment.mode` is forced to `ENDPOINT`.
+
+## Cloud dry-run probe (Path A)
+
+An offline-tested diagnostic (`pr_agent/mosaico/probe.py`) that, run behind the VPN, health-checks
+the cloud MOSAICO reference agent, sends a PR-review task, and reports which solution agent the
+router selected — the automated form of the manual "Path A" dry-run.
+
+Prerequisite: connected to the OpenVPN (vm2 `116.203.57.210` is IP-whitelisted).
+
+```bash
+# default target (http://116.203.57.210:4000)
+PYTHONPATH=. python -m pr_agent.mosaico.probe
+
+# explicit reference-agent URL + task text
+PYTHONPATH=. python -m pr_agent.mosaico.probe http://116.203.57.210:4000 "Review https://github.com/org/repo/pull/1"
+
+# optional registry baseline (best-effort; repo may be internal-only)
+MOSAICO_REPOSITORY_URL=http://116.203.57.210:8080 PYTHONPATH=. python -m pr_agent.mosaico.probe
+```
+
+If the repository is not reachable the probe reports `registry not reachable` and continues.
+
+Reading the output:
+- reference-agent health (`OK` / `UNHEALTHY`);
+- classification — whether the reference agent judged the task software-engineering (yes/no);
+- the selected solution agent (or `no agent selected`);
+- the registry baseline line — `pr-agent-solution-agent` will show **ABSENT (not yet registered)**
+  until we register it on vm2; that is the EXPECTED baseline right now, so the router will select
+  some OTHER agent or none;
+- a final-answer excerpt.
+
+Note: the routing signal is parsed from the reference agent's streamed `status-update` events
+(`Calling external agent: ...`), so the probe uses A2A `message/stream`; the exact SSE framing is
+the one unverified assumption (no live access yet).
