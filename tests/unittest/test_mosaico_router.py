@@ -31,7 +31,7 @@ _SENTINEL = object()
 def restore_settings():
     """Snapshot/restore the settings keys the router mutates, leaving global_settings
     exactly as found."""
-    keys = ["CONFIG.GIT_PROVIDER"]
+    keys = ["CONFIG.GIT_PROVIDER", "CONFIG.PUBLISH_OUTPUT", "CONFIG.PUBLISH_OUTPUT_PROGRESS"]
     before = {k: global_settings.get(k, _SENTINEL) for k in keys}
     mosaico_existed = "MOSAICO" in global_settings
     mosaico_input = global_settings.get("MOSAICO.INPUT", _SENTINEL)
@@ -109,7 +109,11 @@ class TestPathPrUrl:
         out = await route_and_run(f"review {PR_URL}")
         assert out == "REVIEW MARKDOWN"
         assert captured["pr_url"] == PR_URL
-        assert captured["request"] == ["/review"]
+        # _run_pr_agent must inject the no-publish flags so tools write into
+        # data["artifact"] instead of publishing to the real PR.
+        assert "--config.publish_output=false" in captured["request"]
+        assert "--config.publish_output_progress=false" in captured["request"]
+        assert "/review" in captured["request"]
 
     @pytest.mark.asyncio
     async def test_pr_url_leaves_git_provider_default(self, monkeypatch, restore_settings):
@@ -149,7 +153,9 @@ class TestPathSuppliedDiff:
         out = await route_and_run(f"review the following\n{SAMPLE_DIFF}")
         assert out == "DIFF REVIEW"
         assert captured["git_provider"] == "mosaico_diff"
-        assert captured["request"] == ["/review"]
+        assert "/review" in captured["request"]
+        assert "--config.publish_output=false" in captured["request"]
+        assert "--config.publish_output_progress=false" in captured["request"]
         mi = captured["mosaico_input"]
         assert mi and [f.filename for f in mi["files"]] == ["foo.py"]
         assert mi["title"] == "Supplied diff"
@@ -305,3 +311,78 @@ class TestDefensiveCapture:
         for text in ("", None, "   ", "random text with no url and no diff"):
             out = await route_and_run(text)
             assert isinstance(out, str)
+
+
+# ---------------------------------------------------------------------------
+# Regression: production default must NEVER publish to the real PR
+# ---------------------------------------------------------------------------
+class TestPublishOutputForced:
+    """Prove that _run_pr_agent and _run_ask force publish_output=False regardless
+    of the global CONFIG.PUBLISH_OUTPUT default (which is True in production).
+
+    Regression guards: these must fail if the no-publish overrides are ever dropped."""
+
+    @pytest.mark.asyncio
+    async def test_run_pr_agent_injects_no_publish_flags(self, monkeypatch, restore_settings):
+        """_run_pr_agent must pass --config.publish_output=false and
+        --config.publish_output_progress=false in the handle_request args list so that
+        the tool writes into data['artifact'] rather than publishing to the real PR."""
+        captured_args = {}
+
+        async def fake_handle_request(self, pr_url, request, notify=None):
+            captured_args["request"] = list(request)
+            _set_artifact("REVIEW OUTPUT")
+            return True
+
+        from pr_agent.agent.pr_agent import PRAgent
+        from pr_agent.mosaico.dispatch import _run_pr_agent
+        monkeypatch.setattr(PRAgent, "handle_request", fake_handle_request)
+
+        # Ensure the production default (publish_output=True) is in effect so
+        # the test would fail if the flags were absent.
+        global_settings.set("CONFIG.PUBLISH_OUTPUT", True)
+        out = await _run_pr_agent(PR_URL, "review")
+
+        assert out == "REVIEW OUTPUT"
+        assert "--config.publish_output=false" in captured_args["request"], (
+            "Production path must inject --config.publish_output=false; "
+            "without it the tool publishes to the real PR and returns nothing to MOSAICO."
+        )
+        assert "--config.publish_output_progress=false" in captured_args["request"], (
+            "Production path must inject --config.publish_output_progress=false."
+        )
+
+    @pytest.mark.asyncio
+    async def test_run_ask_forces_publish_output_false(self, monkeypatch, restore_settings):
+        """_run_ask must set CONFIG.PUBLISH_OUTPUT=False before calling PRQuestions.run()
+        so that the publish guards in run() never publish_comment to the real PR.
+
+        PRQuestions.parse_args() does a plain join (no --config.* parsing), so the
+        arg-injection trick used by _run_pr_agent cannot apply; a settings.set() is
+        required instead."""
+        publish_output_at_run_time = {}
+
+        class CapturingPRQuestions:
+            def __init__(self, pr_url, args=None, ai_handler=None):
+                self.prediction = "CAPTURED ANSWER"
+
+            async def run(self):
+                # Capture what get_settings() reports at the moment run() executes —
+                # this is the value run()'s publish guards will read.
+                publish_output_at_run_time["value"] = global_settings.get(
+                    "CONFIG.PUBLISH_OUTPUT", True
+                )
+
+        monkeypatch.setattr("pr_agent.tools.pr_questions.PRQuestions", CapturingPRQuestions)
+
+        from pr_agent.mosaico.dispatch import _run_ask
+        # Force global default to True (production default) so the test would fail
+        # if _run_ask does NOT explicitly override it.
+        global_settings.set("CONFIG.PUBLISH_OUTPUT", True)
+        out = await _run_ask(PR_URL, "what does this change?")
+
+        assert out == "CAPTURED ANSWER"
+        assert publish_output_at_run_time.get("value") is False, (
+            "CONFIG.PUBLISH_OUTPUT must be False when PRQuestions.run() is called; "
+            "without this, run()'s publish guards post comments to the real PR."
+        )

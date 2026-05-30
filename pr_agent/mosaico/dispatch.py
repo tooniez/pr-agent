@@ -86,9 +86,15 @@ def _ask_needs_context_fallback() -> str:
 
 
 async def _run_pr_agent(target: str, verb: str) -> str:
-    """Run a review/improve/describe verb via PRAgent.handle_request, defensively."""
+    """Run a review/improve/describe verb via PRAgent.handle_request, defensively.
+    Force non-publishing output capture: the tools render into get_settings().data only
+    when publish_output is False; with the default True they'd publish to the real PR and
+    return nothing to MOSAICO."""
     from pr_agent.agent.pr_agent import PRAgent
-    ok = await PRAgent().handle_request(target, ["/" + verb])
+    ok = await PRAgent().handle_request(
+        target,
+        ["/" + verb, "--config.publish_output=false", "--config.publish_output_progress=false"],
+    )
     if ok is False:
         return _error_fallback(verb)
     artifact = _capture_artifact()
@@ -98,8 +104,17 @@ async def _run_pr_agent(target: str, verb: str) -> str:
 async def _run_ask(target: str, question: str) -> str:
     """Run the ask path directly via PRQuestions (it uses get_git_provider()(pr_url),
     not the with-context variant). PRQuestions.run() is NOT wrapped by handle_request's
-    try/except, so wrap it here and treat an exception like a swallowed failure."""
+    try/except, so wrap it here and treat an exception like a swallowed failure.
+
+    PRQuestions.parse_args() joins args as plain text (no --config.* parsing), so the
+    arg-injection trick used by _run_pr_agent cannot apply here. Instead, force
+    publish_output=False on the per-request settings copy (executor.py deepcopies
+    global_settings into starlette_context, so this write is request-scoped) before
+    constructing PRQuestions — run() reads config.publish_output with no
+    apply_repo_settings call after this point that could re-enable publishing."""
     from pr_agent.tools.pr_questions import PRQuestions
+    get_settings().set("CONFIG.PUBLISH_OUTPUT", False)
+    get_settings().set("CONFIG.PUBLISH_OUTPUT_PROGRESS", False)
     try:
         q = PRQuestions(target, args=[question])
         await q.run()
