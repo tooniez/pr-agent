@@ -25,7 +25,7 @@ services:
       file: base-definitions.yml
       service: agent-registration
     environment:
-      AGENT_NAME: pr-agent-solution-agent
+      AGENT_NAME: PR-Agent Solution Agent
       AGENT_JSON: /app/pr-agent-solution-agent.json
       AGENT_CARD_URL: http://${PR_AGENT_HOST:-${DEFAULT_TASK_AGENT_HOST}}:${PR_AGENT_PORT:-22000}/.well-known/agent-card.json
     depends_on:
