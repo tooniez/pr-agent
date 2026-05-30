@@ -66,6 +66,20 @@ def _extract_diff(text: str) -> str:
     return text
 
 
+def _diff_prose(text: str) -> str:
+    """The natural-language prose around a supplied diff, used for verb detection so
+    punctuation inside the patch body ('?' in a ternary/regex/comment) does not flip the
+    default 'review' into 'ask'. A genuine question in the surrounding prose (e.g.
+    'what changed here?') is preserved."""
+    # Drop a fenced ```diff ... ``` block entirely.
+    without_fence = re.sub(r"```\s*diff\s*\n.*?```", " ", text, flags=re.IGNORECASE | re.DOTALL)
+    if without_fence != text:
+        return without_fence
+    # Raw (unfenced) diff: keep only the text before the first diff/hunk header.
+    m = re.search(r"^(?:diff --git |@@ )", text, re.MULTILINE)
+    return text[:m.start()] if m else text
+
+
 def _capture_artifact() -> str:
     data = get_settings().get("data", {}) or {}
     return (data.get("artifact", "") or "").strip()
@@ -153,6 +167,8 @@ async def route_and_run(user_text: str) -> str:
         # Path (b): a supplied unified diff.
         if _looks_like_diff(text):
             diff_body = _extract_diff(text)
+            # Detect the verb from the prose only: a '?' in the patch body must not flip review to ask.
+            verb = _detect_verb(_diff_prose(text))
             parsed = parse_unified_diff(diff_body)
             if not parsed:
                 return _empty_fallback(verb)

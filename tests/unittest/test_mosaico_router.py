@@ -166,6 +166,40 @@ class TestPathSuppliedDiff:
         out = await route_and_run("```diff\nnot really a diff\n```")
         assert out == _empty_fallback("review")
 
+    @pytest.mark.asyncio
+    async def test_diff_with_question_mark_in_body_still_reviews(self, monkeypatch, restore_settings):
+        """A '?' inside the patch (ternary/regex/comment) must NOT flip the supplied-diff
+        default from review to ask. PRQuestions must never be touched here."""
+        captured = {}
+
+        async def fake_handle_request(self, pr_url, request, notify=None):
+            captured["request"] = request
+            _set_artifact("DIFF REVIEW")
+            return True
+
+        def _explode_prquestions(*a, **k):
+            raise AssertionError("ask path taken for a diff whose '?' is only in the body")
+
+        from pr_agent.agent.pr_agent import PRAgent
+        monkeypatch.setattr(PRAgent, "handle_request", fake_handle_request)
+        monkeypatch.setattr("pr_agent.tools.pr_questions.PRQuestions", _explode_prquestions)
+
+        diff_with_q = (
+            "```diff\n"
+            "diff --git a/foo.py b/foo.py\n"
+            "index 1111111..2222222 100644\n"
+            "--- a/foo.py\n"
+            "+++ b/foo.py\n"
+            "@@ -1,2 +1,2 @@\n"
+            "-y = a if b else c\n"
+            "+y = a ? b : c  # is this right?\n"
+            " z = 3\n"
+            "```"
+        )
+        out = await route_and_run(diff_with_q)
+        assert out == "DIFF REVIEW"
+        assert "/review" in captured["request"]
+
 
 # ---------------------------------------------------------------------------
 # Path (a)/(b) ask: PRQuestions IS invoked when a PR URL or a diff is present
