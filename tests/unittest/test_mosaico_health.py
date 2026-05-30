@@ -71,6 +71,7 @@ def restore_config_model():
 class TestHealthCheckGate:
     """Exercise the REAL health_check() (not the monkeypatched stub) to lock in Fix A."""
 
+    @pytest.mark.asyncio
     async def test_model_without_stop_probes_live_and_returns_ok(
         self, monkeypatch, restore_config_model
     ):
@@ -91,6 +92,7 @@ class TestHealthCheckGate:
         assert result == "OK"
         assert called.get("model") == _MODEL_WITHOUT_STOP
 
+    @pytest.mark.asyncio
     async def test_live_probe_failure_returns_unhealthy(
         self, monkeypatch, restore_config_model
     ):
@@ -105,6 +107,7 @@ class TestHealthCheckGate:
         assert result.startswith("Unhealthy:")
         assert "connection refused" in result
 
+    @pytest.mark.asyncio
     async def test_no_model_configured_returns_unhealthy(
         self, monkeypatch, restore_config_model
     ):

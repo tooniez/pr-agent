@@ -75,6 +75,7 @@ def spy_updater(monkeypatch):
 
 
 class TestExecute:
+    @pytest.mark.asyncio
     async def test_completes_with_rendered_markdown(self, monkeypatch, spy_updater):
         async def fake_route_and_run(text):
             return "RENDERED"
@@ -91,6 +92,7 @@ class TestExecute:
         assert spy_updater.last.completed_with == "RENDERED"
         assert spy_updater.last.failed_with is None
 
+    @pytest.mark.asyncio
     async def test_empty_render_uses_placeholder(self, monkeypatch, spy_updater):
         async def fake_route_and_run(text):
             return ""
@@ -100,6 +102,7 @@ class TestExecute:
             await PRAgentExecutor().execute(_FakeRequestContext("x"), _RecordingEventQueue())
         assert spy_updater.last.completed_with == "(no output produced)"
 
+    @pytest.mark.asyncio
     async def test_route_and_run_raises_marks_failed(self, monkeypatch, spy_updater):
         async def boom(text):
             raise RuntimeError("kaboom")
@@ -114,6 +117,7 @@ class TestExecute:
         assert spy_updater.last.failed_with is not None
         assert "kaboom" in spy_updater.last.failed_with
 
+    @pytest.mark.asyncio
     async def test_existing_task_not_re_enqueued(self, monkeypatch, spy_updater):
         async def fake_route_and_run(text):
             return "R"
@@ -130,6 +134,7 @@ class TestExecute:
         assert eq.events == []
         assert spy_updater.last.completed_with == "R"
 
+    @pytest.mark.asyncio
     async def test_cancel_raises_not_implemented(self):
         with pytest.raises(NotImplementedError):
             await PRAgentExecutor().cancel(_FakeRequestContext("z"), _RecordingEventQueue())

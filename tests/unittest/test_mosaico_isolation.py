@@ -126,6 +126,7 @@ def snapshot_global():
 
 
 class TestConcurrencyIsolation:
+    @pytest.mark.asyncio
     async def test_no_bleed_between_concurrent_requests(self, monkeypatch, snapshot_global):
         monkeypatch.setattr(executor_mod, "route_and_run", _distinct_route_and_run)
         monkeypatch.setattr(executor_mod, "TaskUpdater", _SpyTaskUpdater)
@@ -156,6 +157,7 @@ class TestConcurrencyIsolation:
         assert global_settings.get("CONFIG.MODEL", None) == global_model_before
         assert global_settings.get("CONFIG.GIT_PROVIDER", None) == global_provider_before
 
+    @pytest.mark.asyncio
     async def test_isolation_is_non_vacuous(self, monkeypatch, snapshot_global):
         """Prove the test would FAIL without per-request isolation: run the SAME
         interleaving but WITHOUT the executor's deepcopy-into-context — both coroutines

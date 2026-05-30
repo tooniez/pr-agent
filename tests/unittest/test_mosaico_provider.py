@@ -286,6 +286,7 @@ async def _run_tool_via_spy(monkeypatch, isolated_settings, verb, canned_yaml, s
 
 
 class TestSpikeEndToEnd:
+    @pytest.mark.asyncio
     async def test_review_end_to_end(self, monkeypatch, isolated_settings):
         ok, artifact, incremental = await _run_tool_via_spy(
             monkeypatch, isolated_settings, "review", CANNED_REVIEW_YAML)
@@ -293,6 +294,7 @@ class TestSpikeEndToEnd:
         assert artifact, "review produced empty artifact"
         assert incremental == [], f"incremental-only methods were accessed: {incremental}"
 
+    @pytest.mark.asyncio
     async def test_improve_end_to_end(self, monkeypatch, isolated_settings):
         ok, artifact, incremental = await _run_tool_via_spy(
             monkeypatch, isolated_settings, "improve", CANNED_IMPROVE_YAML,

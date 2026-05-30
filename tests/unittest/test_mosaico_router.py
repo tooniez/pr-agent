@@ -93,6 +93,7 @@ class TestVerbDetection:
 # Path (a): host PR URL
 # ---------------------------------------------------------------------------
 class TestPathPrUrl:
+    @pytest.mark.asyncio
     async def test_pr_url_runs_handle_request_and_returns_artifact(self, monkeypatch, restore_settings):
         captured = {}
 
@@ -110,6 +111,7 @@ class TestPathPrUrl:
         assert captured["pr_url"] == PR_URL
         assert captured["request"] == ["/review"]
 
+    @pytest.mark.asyncio
     async def test_pr_url_leaves_git_provider_default(self, monkeypatch, restore_settings):
         global_settings.set("CONFIG.GIT_PROVIDER", "github")
 
@@ -129,6 +131,7 @@ class TestPathPrUrl:
 # Path (b): supplied diff
 # ---------------------------------------------------------------------------
 class TestPathSuppliedDiff:
+    @pytest.mark.asyncio
     async def test_diff_sets_provider_and_input(self, monkeypatch, restore_settings):
         captured = {}
 
@@ -151,6 +154,7 @@ class TestPathSuppliedDiff:
         assert mi and [f.filename for f in mi["files"]] == ["foo.py"]
         assert mi["title"] == "Supplied diff"
 
+    @pytest.mark.asyncio
     async def test_unparseable_diff_returns_empty_fallback(self, monkeypatch, restore_settings):
         # looks like a diff (has a fence) but parse yields nothing
         out = await route_and_run("```diff\nnot really a diff\n```")
@@ -161,6 +165,7 @@ class TestPathSuppliedDiff:
 # Path (a)/(b) ask: PRQuestions IS invoked when a PR URL or a diff is present
 # ---------------------------------------------------------------------------
 class TestAskWithContext:
+    @pytest.mark.asyncio
     async def test_pr_url_question_runs_prquestions(self, monkeypatch, restore_settings):
         captured = {}
 
@@ -188,6 +193,7 @@ class TestAskWithContext:
         assert captured["pr_url"] == PR_URL  # path (a): URL drives the provider target
         assert pr_agent_used["called"] is False
 
+    @pytest.mark.asyncio
     async def test_supplied_diff_question_runs_prquestions(self, monkeypatch, restore_settings):
         captured = {}
 
@@ -212,6 +218,7 @@ class TestAskWithContext:
 # Path (c): free-text with no PR URL and no diff -> honest guidance (Fix B)
 # ---------------------------------------------------------------------------
 class TestPathFreeText:
+    @pytest.mark.asyncio
     async def test_free_text_returns_guidance_not_internal_error(self, monkeypatch, restore_settings):
         """A context-free free-text ask must NOT call PRQuestions/PRAgent and must NOT
         return the internal-error fallback; it returns honest guidance instead."""
@@ -241,6 +248,7 @@ class TestPathFreeText:
         assert pr_questions_used["called"] is False
         assert pr_agent_used["called"] is False
 
+    @pytest.mark.asyncio
     async def test_free_text_without_question_mark_also_guidance(self, monkeypatch, restore_settings):
         # The verb heuristic routes interrogative openers to 'ask'; still no URL/diff -> (c).
         out = await route_and_run("what is up")
@@ -251,6 +259,7 @@ class TestPathFreeText:
 # §5 defensive capture / fallbacks
 # ---------------------------------------------------------------------------
 class TestDefensiveCapture:
+    @pytest.mark.asyncio
     async def test_handle_request_false_returns_error_fallback(self, monkeypatch, restore_settings):
         async def fake_handle_request(self, pr_url, request, notify=None):
             return False  # swallowed internal failure
@@ -261,6 +270,7 @@ class TestDefensiveCapture:
         out = await route_and_run(f"review {PR_URL}")
         assert out == _error_fallback("review")
 
+    @pytest.mark.asyncio
     async def test_ok_but_no_artifact_returns_empty_fallback(self, monkeypatch, restore_settings):
         async def fake_handle_request(self, pr_url, request, notify=None):
             # ok=True but never sets data["artifact"] (early-return paths in §5)
@@ -274,6 +284,7 @@ class TestDefensiveCapture:
         out = await route_and_run(f"review {PR_URL}")
         assert out == _empty_fallback("review")
 
+    @pytest.mark.asyncio
     async def test_ask_that_raises_returns_error_fallback(self, monkeypatch, restore_settings):
         class RaisingPRQuestions:
             def __init__(self, pr_url, args=None, ai_handler=None):
@@ -288,6 +299,7 @@ class TestDefensiveCapture:
         out = await route_and_run(f"what is the meaning of this? {PR_URL}")
         assert out == _error_fallback("ask")
 
+    @pytest.mark.asyncio
     async def test_route_and_run_never_raises_on_garbage(self, restore_settings):
         # No monkeypatching: a host-less PR-agent run / ask should still return a string.
         for text in ("", None, "   ", "random text with no url and no diff"):
