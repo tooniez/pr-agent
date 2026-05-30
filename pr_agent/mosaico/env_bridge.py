@@ -16,8 +16,7 @@ ENV_LANGFUSE_SECRET_KEY = "LANGFUSE_SECRET_KEY"
 
 
 def langfuse_env_present() -> bool:
-    return bool(os.getenv(ENV_LANGFUSE_HOST) and os.getenv(ENV_LANGFUSE_PUBLIC_KEY)
-                and os.getenv(ENV_LANGFUSE_SECRET_KEY))
+    return bool(os.getenv(ENV_LANGFUSE_HOST) and os.getenv(ENV_LANGFUSE_PUBLIC_KEY) and os.getenv(ENV_LANGFUSE_SECRET_KEY))
 
 
 def apply_mosaico_env() -> None:

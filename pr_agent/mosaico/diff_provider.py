@@ -13,7 +13,6 @@ from typing import List, Optional
 from pr_agent.algo.types import EDIT_TYPE, FilePatchInfo
 from pr_agent.config_loader import get_settings
 from pr_agent.git_providers.git_provider import GitProvider
-from pr_agent.log import get_logger
 
 
 class _PullRequestMimic:

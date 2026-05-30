@@ -55,8 +55,7 @@ def _find_pr_url(text: str):
 def _looks_like_diff(text: str) -> bool:
     if not text:
         return False
-    return bool(_DIFF_FENCE_RE.search(text) or _DIFF_HEADER_RE.search(text)
-                or _UNIFIED_HUNK_RE.search(text))
+    return bool(_DIFF_FENCE_RE.search(text) or _DIFF_HEADER_RE.search(text) or _UNIFIED_HUNK_RE.search(text))
 
 
 def _extract_diff(text: str) -> str:
