@@ -3,8 +3,6 @@
 parse_observability_metadata: all-3 -> all 3; missing-one -> PARTIAL dict (not {});
 non-string value -> key omitted; non-Mapping -> {}; never raises.
 langfuse_span: no-op-safe when langfuse unavailable AND when meta is partial/empty."""
-import pytest
-
 from pr_agent.mosaico.observability import (langfuse_span,
                                             mosaico_log_context,
                                             parse_observability_metadata)

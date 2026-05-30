@@ -5,7 +5,7 @@ Three paths:
   (a) a host PR URL  -> run the verb via the host provider (URL drives provider).
   (b) a supplied unified diff -> set MOSAICO.INPUT + CONFIG.GIT_PROVIDER="mosaico_diff"
       on the context settings, run the verb via DiffInputProvider.
-  (c) free-text question -> run PRQuestions directly (it uses get_git_provider()).
+  (c) free-text with no PR URL and no diff -> honest guidance (ask needs a PR/diff).
 
 Capture is DEFENSIVE everywhere: get_settings().get("data", {}).get("artifact", "")
 (several tool paths never set it, and handle_request swallows exceptions -> False).
@@ -24,7 +24,6 @@ _PR_URL_RE = re.compile(
     r"https?://\S*?/(?:pull|pulls|merge_requests|pullrequest|pull-requests|_git/\S+/pullrequest)/\d+",
     re.IGNORECASE,
 )
-_GENERIC_URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
 
 # Diff detection: a ```diff fence or a raw unified-diff header.
 _DIFF_FENCE_RE = re.compile(r"```\s*diff", re.IGNORECASE)
@@ -79,6 +78,12 @@ def _empty_fallback(verb: str) -> str:
 
 def _error_fallback(verb: str) -> str:
     return f"PR-Agent could not complete the {verb} (internal error; see agent logs)."
+
+
+def _ask_needs_context_fallback() -> str:
+    """Honest guidance for a context-free input (no PR URL, no diff). Every verb needs a
+    PR/diff to act on, so we return guidance rather than invoking a tool that would fail."""
+    return "PR-Agent requires a PR URL or a supplied diff."
 
 
 async def _run_pr_agent(target: str, verb: str) -> str:
@@ -148,8 +153,9 @@ async def route_and_run(user_text: str) -> str:
                 return await _run_ask("mosaico://supplied-diff", text)
             return await _run_pr_agent("mosaico://supplied-diff", verb)
 
-        # Path (c): free-text question.
-        return await _run_ask("mosaico://free-text", text)
+        # Path (c): free-text with no PR URL and no supplied diff. PRQuestions needs a
+        # diff/PR to answer, so return honest guidance rather than a false internal error.
+        return _ask_needs_context_fallback()
     except Exception:
         get_logger().exception("MOSAICO: route_and_run failed")
         return _error_fallback("request")

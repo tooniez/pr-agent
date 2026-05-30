@@ -7,7 +7,6 @@ with no exception escaping.
 asyncio_mode=auto."""
 import pytest
 
-import pr_agent.mosaico.dispatch as dispatch
 from pr_agent.config_loader import global_settings
 from pr_agent.mosaico.dispatch import (_detect_verb, _empty_fallback,
                                        _error_fallback, route_and_run)
@@ -159,15 +158,70 @@ class TestPathSuppliedDiff:
 
 
 # ---------------------------------------------------------------------------
-# Path (c): free-text question
+# Path (a)/(b) ask: PRQuestions IS invoked when a PR URL or a diff is present
+# ---------------------------------------------------------------------------
+class TestAskWithContext:
+    async def test_pr_url_question_runs_prquestions(self, monkeypatch, restore_settings):
+        captured = {}
+
+        class FakePRQuestions:
+            def __init__(self, pr_url, args=None, ai_handler=None):
+                captured["pr_url"] = pr_url
+                captured["args"] = args
+                self.prediction = "URL ANSWER"
+
+            async def run(self):
+                return ""
+
+        pr_agent_used = {"called": False}
+
+        async def fail_handle_request(self, *a, **k):
+            pr_agent_used["called"] = True
+            return True
+
+        monkeypatch.setattr("pr_agent.tools.pr_questions.PRQuestions", FakePRQuestions)
+        from pr_agent.agent.pr_agent import PRAgent
+        monkeypatch.setattr(PRAgent, "handle_request", fail_handle_request)
+
+        out = await route_and_run(f"what does this change? {PR_URL}")
+        assert out == "URL ANSWER"
+        assert captured["pr_url"] == PR_URL  # path (a): URL drives the provider target
+        assert pr_agent_used["called"] is False
+
+    async def test_supplied_diff_question_runs_prquestions(self, monkeypatch, restore_settings):
+        captured = {}
+
+        class FakePRQuestions:
+            def __init__(self, pr_url, args=None, ai_handler=None):
+                captured["pr_url"] = pr_url
+                captured["git_provider"] = global_settings.get("CONFIG.GIT_PROVIDER")
+                self.prediction = "DIFF ANSWER"
+
+            async def run(self):
+                return ""
+
+        monkeypatch.setattr("pr_agent.tools.pr_questions.PRQuestions", FakePRQuestions)
+
+        out = await route_and_run(f"what changed here?\n{SAMPLE_DIFF}")
+        assert out == "DIFF ANSWER"
+        assert captured["pr_url"] == "mosaico://supplied-diff"  # path (b) target
+        assert captured["git_provider"] == "mosaico_diff"
+
+
+# ---------------------------------------------------------------------------
+# Path (c): free-text with no PR URL and no diff -> honest guidance (Fix B)
 # ---------------------------------------------------------------------------
 class TestPathFreeText:
-    async def test_free_text_uses_prquestions_not_pragent(self, monkeypatch, restore_settings):
+    async def test_free_text_returns_guidance_not_internal_error(self, monkeypatch, restore_settings):
+        """A context-free free-text ask must NOT call PRQuestions/PRAgent and must NOT
+        return the internal-error fallback; it returns honest guidance instead."""
+        pr_questions_used = {"called": False}
         pr_agent_used = {"called": False}
 
         class FakePRQuestions:
             def __init__(self, pr_url, args=None, ai_handler=None):
-                self.prediction = "ANSWER TEXT"
+                pr_questions_used["called"] = True
+                self.prediction = "SHOULD NOT BE USED"
 
             async def run(self):
                 return ""
@@ -181,20 +235,16 @@ class TestPathFreeText:
         monkeypatch.setattr(PRAgent, "handle_request", fail_handle_request)
 
         out = await route_and_run("what does this codebase do?")
-        assert out == "ANSWER TEXT"
+        assert out == "PR-Agent requires a PR URL or a supplied diff."
+        assert out != _error_fallback("ask")
+        assert out != _error_fallback("request")
+        assert pr_questions_used["called"] is False
         assert pr_agent_used["called"] is False
 
-    async def test_empty_ask_returns_empty_fallback(self, monkeypatch, restore_settings):
-        class FakePRQuestions:
-            def __init__(self, pr_url, args=None, ai_handler=None):
-                self.prediction = ""  # empty-diff ask path
-
-            async def run(self):
-                return ""
-
-        monkeypatch.setattr("pr_agent.tools.pr_questions.PRQuestions", FakePRQuestions)
-        out = await route_and_run("what is up?")
-        assert out == _empty_fallback("ask")
+    async def test_free_text_without_question_mark_also_guidance(self, monkeypatch, restore_settings):
+        # The verb heuristic routes interrogative openers to 'ask'; still no URL/diff -> (c).
+        out = await route_and_run("what is up")
+        assert out == "PR-Agent requires a PR URL or a supplied diff."
 
 
 # ---------------------------------------------------------------------------
@@ -233,7 +283,9 @@ class TestDefensiveCapture:
                 raise RuntimeError("boom")
 
         monkeypatch.setattr("pr_agent.tools.pr_questions.PRQuestions", RaisingPRQuestions)
-        out = await route_and_run("what is the meaning of this?")
+        # Use a PR URL so the ask path (a) actually runs PRQuestions (free-text no longer
+        # invokes it after Fix B); a raise there -> error fallback.
+        out = await route_and_run(f"what is the meaning of this? {PR_URL}")
         assert out == _error_fallback("ask")
 
     async def test_route_and_run_never_raises_on_garbage(self, restore_settings):

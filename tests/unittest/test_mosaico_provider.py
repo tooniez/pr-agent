@@ -4,8 +4,6 @@ through DiffInputProvider with a mocked LLM, assert non-empty captured artifact,
 un-stubbed provider method raises, and the incremental path never fires.
 
 asyncio_mode=auto."""
-import copy
-
 import pytest
 
 from pr_agent.algo.types import EDIT_TYPE

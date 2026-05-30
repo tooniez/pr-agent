@@ -11,10 +11,8 @@ text comes back with NO exception escaping.
 
 This test passing is the end-to-end proof that the middleware->executor->dispatch->
 provider->render chain works through the wire."""
-import json
 import uuid
 
-import pytest
 from starlette.testclient import TestClient
 
 import pr_agent.algo.ai_handlers.litellm_ai_handler as litellm_mod

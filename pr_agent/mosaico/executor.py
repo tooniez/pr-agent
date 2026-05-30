@@ -53,7 +53,6 @@ async def health_check() -> str:
     single litellm.acompletion, after applying the MOSAICO/Stage-1 LLM settings."""
     try:
         import litellm
-        from litellm import get_supported_openai_params
 
         # Construct the handler purely for its side effect of applying pr-agent's LLM
         # config (api_base/key/callbacks/etc.) onto the litellm module — do NOT call its
@@ -66,18 +65,11 @@ async def health_check() -> str:
         if not model:
             return "Unhealthy: no model configured"
 
-        try:
-            params = get_supported_openai_params(model=model)
-            if params is not None and 'stop' not in params:
-                return "Unhealthy: LLM does not support 'stop' parameter"
-        except Exception:
-            # Param introspection is best-effort; fall through to the live probe.
-            pass
-
         kwargs = {
             "model": model,
             "messages": [{"role": "system", "content": "Say ping"}],
             "max_tokens": 10,
+            "timeout": 10,
         }
         if getattr(handler, "api_base", None):
             kwargs["api_base"] = handler.api_base

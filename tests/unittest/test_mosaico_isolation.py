@@ -15,11 +15,9 @@ global_settings), the interleaved writes would clobber each other and the read-b
 assertions would fail. test_isolation_is_non_vacuous proves this directly by running the
 same interleaving WITHOUT the per-request deepcopy and asserting the bleed DOES occur."""
 import asyncio
-import copy
 
 import pytest
 from a2a.types import Message, Part, Role, TextPart
-from starlette_context import context as sctx
 from starlette_context import request_cycle_context
 
 import pr_agent.mosaico.executor as executor_mod
