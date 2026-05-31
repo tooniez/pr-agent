@@ -10,7 +10,10 @@ from pr_agent.log import get_logger
 ENV_API_BASE = "API_BASE"
 ENV_API_KEY = "API_KEY"
 ENV_MODEL_NAME = "MODEL_NAME"
+ENV_MODEL_MAX_TOKENS = "MODEL_MAX_TOKENS"
 ENV_LANGFUSE_HOST = "LANGFUSE_HOST"
+# Token budget for a MOSAICO model not in pr-agent's built-in MAX_TOKENS table.
+DEFAULT_CUSTOM_MODEL_MAX_TOKENS = 32000
 ENV_LANGFUSE_PUBLIC_KEY = "LANGFUSE_PUBLIC_KEY"
 ENV_LANGFUSE_SECRET_KEY = "LANGFUSE_SECRET_KEY"
 
@@ -35,6 +38,20 @@ def apply_mosaico_env() -> None:
         model = model_name if "/" in model_name else f"openai/{model_name}"
         settings.set("CONFIG.MODEL", model)
         settings.set("CONFIG.FALLBACK_MODELS", [])
+        # MOSAICO models are not in pr-agent's built-in MAX_TOKENS table; declare a budget
+        # so reviews don't fail with "not defined in MAX_TOKENS". Overridable via env.
+        max_tokens_env = os.getenv(ENV_MODEL_MAX_TOKENS)
+        try:
+            custom_max_tokens = int(max_tokens_env) if max_tokens_env else DEFAULT_CUSTOM_MODEL_MAX_TOKENS
+        except ValueError:
+            custom_max_tokens = DEFAULT_CUSTOM_MODEL_MAX_TOKENS
+        if custom_max_tokens <= 0:
+            get_logger().warning(
+                f"MOSAICO: MODEL_MAX_TOKENS={custom_max_tokens!r} is non-positive; "
+                f"falling back to DEFAULT_CUSTOM_MODEL_MAX_TOKENS={DEFAULT_CUSTOM_MODEL_MAX_TOKENS}."
+            )
+            custom_max_tokens = DEFAULT_CUSTOM_MODEL_MAX_TOKENS
+        settings.set("CONFIG.CUSTOM_MODEL_MAX_TOKENS", custom_max_tokens)
 
     if langfuse_env_present():
         _register_langfuse_callback(settings)
