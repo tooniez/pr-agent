@@ -19,13 +19,14 @@ _SNAPSHOT_KEYS = [
     "OPENAI.KEY",
     "CONFIG.MODEL",
     "CONFIG.FALLBACK_MODELS",
+    "CONFIG.CUSTOM_MODEL_MAX_TOKENS",
     "LITELLM.SUCCESS_CALLBACK",
     "LITELLM.FAILURE_CALLBACK",
     "LITELLM.ENABLE_CALLBACKS",
 ]
 
 _MOSAICO_ENV_VARS = [
-    "API_BASE", "API_KEY", "MODEL_NAME",
+    "API_BASE", "API_KEY", "MODEL_NAME", "MODEL_MAX_TOKENS",
     "LANGFUSE_HOST", "LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY",
 ]
 
@@ -102,6 +103,29 @@ class TestApplyMosaicoEnv:
         s = get_settings()
         assert list(s.get("LITELLM.SUCCESS_CALLBACK") or []) == []
         assert list(s.get("LITELLM.FAILURE_CALLBACK") or []) == []
+
+    def test_model_max_tokens_valid_positive_value(self, restore_settings, clear_mosaico_env, monkeypatch):
+        """A valid positive MODEL_MAX_TOKENS is written through unchanged."""
+        monkeypatch.setenv("MODEL_NAME", "my-model")
+        monkeypatch.setenv("MODEL_MAX_TOKENS", "8192")
+        apply_mosaico_env()
+        assert get_settings().get("CONFIG.CUSTOM_MODEL_MAX_TOKENS") == 8192
+
+    def test_model_max_tokens_zero_falls_back_to_default(self, restore_settings, clear_mosaico_env, monkeypatch):
+        """MODEL_MAX_TOKENS=0 is non-positive; must degrade to DEFAULT_CUSTOM_MODEL_MAX_TOKENS."""
+        from pr_agent.mosaico.env_bridge import DEFAULT_CUSTOM_MODEL_MAX_TOKENS
+        monkeypatch.setenv("MODEL_NAME", "my-model")
+        monkeypatch.setenv("MODEL_MAX_TOKENS", "0")
+        apply_mosaico_env()
+        assert get_settings().get("CONFIG.CUSTOM_MODEL_MAX_TOKENS") == DEFAULT_CUSTOM_MODEL_MAX_TOKENS
+
+    def test_model_max_tokens_negative_falls_back_to_default(self, restore_settings, clear_mosaico_env, monkeypatch):
+        """MODEL_MAX_TOKENS=-5 is non-positive; must degrade to DEFAULT_CUSTOM_MODEL_MAX_TOKENS."""
+        from pr_agent.mosaico.env_bridge import DEFAULT_CUSTOM_MODEL_MAX_TOKENS
+        monkeypatch.setenv("MODEL_NAME", "my-model")
+        monkeypatch.setenv("MODEL_MAX_TOKENS", "-5")
+        apply_mosaico_env()
+        assert get_settings().get("CONFIG.CUSTOM_MODEL_MAX_TOKENS") == DEFAULT_CUSTOM_MODEL_MAX_TOKENS
 
     def test_apply_mosaico_env_registers_langfuse_on_real_handler(
             self, restore_settings, clear_mosaico_env, monkeypatch):

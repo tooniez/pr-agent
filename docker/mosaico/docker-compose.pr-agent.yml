@@ -17,8 +17,9 @@ services:
       AGENT_CARD_HOST: ${PR_AGENT_HOST:-${DEFAULT_TASK_AGENT_HOST}}
       AGENT_CARD_PORT: ${PR_AGENT_PORT:-22000}
       MODEL_NAME: ${PR_AGENT_MODEL}
+    # Gate registration on card/HTTP readiness, not /health (a live LLM probe).
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:9000/health')\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:9000/.well-known/agent-card.json')\""]
 
   pr-agent-solution-agent-registration:
     extends:
@@ -27,7 +28,8 @@ services:
     environment:
       AGENT_NAME: PR-Agent Solution Agent
       AGENT_JSON: /app/pr-agent-solution-agent.json
-      AGENT_CARD_URL: http://${PR_AGENT_HOST:-${DEFAULT_TASK_AGENT_HOST}}:${PR_AGENT_PORT:-22000}/.well-known/agent-card.json
+      # Fetched container-to-container: use the service name and in-container port 9000.
+      AGENT_CARD_URL: http://pr-agent-solution-agent:9000/.well-known/agent-card.json
     depends_on:
       pr-agent-solution-agent:
         condition: service_healthy
