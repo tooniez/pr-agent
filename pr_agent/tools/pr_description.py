@@ -180,7 +180,10 @@ class PRDescription:
                     else:
                         self.git_provider.publish_comment(full_markdown_description)
                 else:
-                    self.git_provider.publish_description(pr_title.strip(), pr_body)
+                    # Pass None when the title is not AI-generated so the provider
+                    # leaves it untouched, avoiding reverting a manual edit (#2474).
+                    title_to_publish = pr_title.strip() if get_settings().pr_description.generate_ai_title else None
+                    self.git_provider.publish_description(title_to_publish, pr_body)
 
                     # publish final update message
                     if (get_settings().pr_description.final_update_message and not get_settings().config.get('is_auto_command', False)):
