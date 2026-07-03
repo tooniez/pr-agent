@@ -280,3 +280,24 @@ ignore_ticket_labels = ["ignore-compliance", "skip-review", "wont-fix"]
 ```
 
 Where `ignore_ticket_labels` is a list of label names that should be ignored during ticket analysis.
+
+### Restricted Mode
+
+When running PR-Agent with limited GitHub/GitLab permissions, set `restricted_mode` to `true` to gracefully skip operations that require elevated access (e.g., pushing changelog changes):
+
+```toml
+[config]
+restricted_mode = true
+```
+
+With restricted mode, the minimum workflow permissions are:
+
+```yaml
+permissions:
+  issues: write
+  pull-requests: write
+```
+
+Within an explicit `permissions:` block, any scope you do not list (such as `contents`) is set to `none`, so you do not need to grant `contents` — restricted mode skips every operation that would require `contents: write`. All tools (`/review`, `/describe`, `/improve`, etc.) continue to work normally with just `pull-requests: write`.
+
+> **Note:** this only holds when a `permissions:` block is present (as above). If you omit the `permissions:` block entirely, the effective defaults are governed by your repository/organization GitHub Actions settings and may grant broader access.
