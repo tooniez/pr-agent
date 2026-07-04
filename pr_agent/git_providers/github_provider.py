@@ -853,6 +853,31 @@ class GithubProvider(GitProvider):
         except Exception:
             return ""
 
+    def get_repo_file_content(self, file_path: str, from_default_branch: bool = False):
+        try:
+            # Prefer the PR target (base) ref so repo-context instruction files match the branch
+            # the PR is merging into. Fall back to the repo default branch when no PR base is
+            # available, or always when from_default_branch is requested.
+            if from_default_branch:
+                ref = None
+            else:
+                base = getattr(getattr(self, "pr", None), "base", None)
+                ref = getattr(base, "sha", None) or getattr(base, "ref", None)
+            if ref:
+                contents = self.repo_obj.get_contents(file_path, ref=ref).decoded_content
+            else:
+                contents = self.repo_obj.get_contents(file_path).decoded_content
+            if isinstance(contents, bytes):
+                return contents.decode("utf-8", errors="replace")
+            return contents
+        except GithubException as e:
+            # A missing file is an expected "no context" outcome. Let transient/unexpected
+            # errors propagate so build_repo_context() treats them as a fetch error and does
+            # not cache an empty result until the TTL expires.
+            if e.status == 404:
+                return ""
+            raise
+
     def get_workspace_name(self):
         return self.repo.split('/')[0]
 

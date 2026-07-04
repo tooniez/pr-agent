@@ -673,9 +673,8 @@ class GitLabProvider(GitProvider):
                 target_file = None
                 for file in diff_files:
                     if file.filename == relevant_file:
-                        if file.filename == relevant_file:
-                            target_file = file
-                            break
+                        target_file = file
+                        break
                 if target_file is None:
                     get_logger().warning(f"Skipping suggestion: file '{relevant_file}' not found in diff")
                     continue
@@ -801,6 +800,21 @@ class GitLabProvider(GitProvider):
             contents = self.gl.projects.get(self.id_project).files.get(file_path='.pr_agent.toml', ref=main_branch).decode()
             return contents
         except Exception:
+            return ""
+
+    def get_repo_file_content(self, file_path: str, from_default_branch: bool = False):
+        try:
+            project = self.gl.projects.get(self.id_project)
+            # Read from the MR target branch (the branch being merged into), matching the other
+            # providers; fall back to the project default branch outside of an MR context, or
+            # always when from_default_branch is requested.
+            if from_default_branch:
+                ref = project.default_branch
+            else:
+                ref = getattr(self.mr, "target_branch", None) or project.default_branch
+            contents = project.files.get(file_path=file_path, ref=ref).decode()
+            return decode_if_bytes(contents)
+        except GitlabGetError:
             return ""
 
     def get_workspace_name(self):

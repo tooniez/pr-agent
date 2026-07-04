@@ -62,6 +62,8 @@ class GiteaProvider(GitProvider):
         self.file_contents = {}
         self.file_diffs = {}
         self.sha = None
+        self.base_sha = ""
+        self.base_ref = ""
         self.diff_files = []
         self.incremental = IncrementalPR(False)
         self.comments_list = []
@@ -240,7 +242,7 @@ class GiteaProvider(GitProvider):
     def publish_comment(self, comment: str,is_temporary: bool = False) -> None:
         """Publish a comment to the pull request"""
         if is_temporary and not get_settings().config.publish_output_progress:
-            get_logger().debug(f"Skipping publish_comment for temporary comment")
+            get_logger().debug("Skipping publish_comment for temporary comment")
             return None
 
         if self.enabled_issue:
@@ -744,6 +746,43 @@ class GiteaProvider(GitProvider):
         clone_url = scheme
         clone_url += f"{gitea_token}@{base_url}{repo_full_name}"
         return clone_url
+
+    def get_repo_file_content(self, file_path: str, from_default_branch: bool = False) -> str:
+        """Get content of a file from the PR target (base) branch.
+
+        This method implements the interface required by PR #2387 repo_context feature.
+        It reads only from the PR target ref (base sha/ref) and never from the PR head,
+        so a PR cannot supply its own instruction files to influence its own review.
+        When from_default_branch is set, it reads from the repository default branch instead.
+        """
+        try:
+            if not self.owner or not self.repo:
+                self.logger.warning("Cannot get repo file content: owner or repo not set")
+                return ""
+
+            if from_default_branch:
+                ref = self.repo_api.repo_get(self.owner, self.repo).default_branch
+            else:
+                # Only trust the PR target (base) ref — never fall back to the PR head (self.sha).
+                ref = self.base_sha or self.base_ref
+            if not ref:
+                self.logger.warning("Cannot get repo file content: no target/base ref available")
+                return ""
+
+            content = self.repo_api.get_file_content(
+                owner=self.owner,
+                repo=self.repo,
+                commit_sha=ref,
+                filepath=file_path
+            )
+            return content
+        except ApiException as e:
+            # A missing file is an expected "no context" outcome. Let transient/unexpected
+            # errors propagate so build_repo_context() treats them as a fetch error and does
+            # not cache an empty result until the TTL expires.
+            if getattr(e, "status", None) == 404:
+                return ""
+            raise
 
 class RepoApi(giteapy.RepositoryApi):
     def __init__(self, client: giteapy.ApiClient):
