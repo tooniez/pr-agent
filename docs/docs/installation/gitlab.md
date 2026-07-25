@@ -97,6 +97,8 @@ PORT=3000  # Optional: override the webhook server port
 
 9. Test your installation by opening a merge request or commenting on a merge request using one of PR Agent's commands.
 
+10. The webhook server runs under gunicorn with multiple worker processes. See [Sizing a self-hosted webhook server](./index.md#sizing-a-self-hosted-webhook-server) for the `GUNICORN_WORKERS` / `GUNICORN_MAX_WORKERS` knobs and memory guidance — worth reading before setting a memory limit.
+
 ## Deploy as a Lambda Function
 
 Note that since AWS Lambda env vars cannot have "." in the name, you can replace each "." in an env variable with "__".<br>
