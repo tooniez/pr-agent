@@ -308,14 +308,19 @@ def _pr_fetch_failed_fallback(pr_url: str) -> str:
 
 async def _run_pr_agent(target: str, verb: str) -> "RouteResult":
     """Run a review/improve/describe verb via PRAgent.handle_request, defensively.
-    Force non-publishing output capture: the tools render into get_settings().data only
-    when publish_output is False; with the default True they'd publish to the real PR and
-    return nothing to MOSAICO."""
+    publish_output=false makes the tools render into get_settings().data instead of the real PR;
+    propagate_tool_errors makes them re-raise, so a failure cannot read back as an empty run."""
     from pr_agent.agent.pr_agent import PRAgent
-    ok = await PRAgent().handle_request(
-        target,
-        ["/" + verb, "--config.publish_output=false", "--config.publish_output_progress=false"],
-    )
+    settings = get_settings()
+    propagate_before = settings.get("CONFIG.PROPAGATE_TOOL_ERRORS", False)
+    try:
+        ok = await PRAgent().handle_request(
+            target,
+            ["/" + verb, "--config.publish_output=false", "--config.publish_output_progress=false",
+             "--config.propagate_tool_errors=true"],
+        )
+    finally:
+        settings.set("CONFIG.PROPAGATE_TOOL_ERRORS", propagate_before)
     if ok is False:
         return RouteResult(_error_fallback(verb), ok=False)
     artifact = _capture_artifact()
