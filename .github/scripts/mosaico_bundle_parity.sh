@@ -15,7 +15,7 @@ MIRROR_ONLY=(".gitignore")
 die() { echo "error: $*" >&2; exit 2; }
 
 needval() {
-  [[ $# -ge 2 && -n "${2:-}" && "$2" != -* ]] || die "option $1 requires a value"
+  [[ $# -ge 2 && -n "${2:-}" && "$2" != --* ]] || die "option $1 requires a value"
 }
 
 while [[ $# -gt 0 ]]; do
