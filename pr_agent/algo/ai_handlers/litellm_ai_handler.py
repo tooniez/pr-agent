@@ -478,6 +478,7 @@ class LiteLLMAIHandler(BaseAiHandler):
     @retry(
         retry=retry_if_exception_type(openai.APIError) & retry_if_not_exception_type(openai.RateLimitError),
         stop=stop_after_attempt(MODEL_RETRIES),
+        reraise=True,  # surface the provider's error; RetryError hides the reason
     )
     async def chat_completion(self, model: str, system: str, user: str, temperature: float = 0.2, img_path: str = None):
         # Serialize env-var mutation + Bedrock call for IMDS mode to prevent concurrent
@@ -784,7 +785,11 @@ class LiteLLMAIHandler(BaseAiHandler):
                     raise
             except Exception as e:
                 get_logger().warning(f"Unknown error during LLM inference: {e}")
-                raise openai.APIError from e
+                raise openai.APIError(
+                    str(e),
+                    request=httpx.Request("POST", model),
+                    body=None,
+                ) from e
 
             get_logger().debug(f"\nAI response:\n{resp}")
 
@@ -814,7 +819,11 @@ class LiteLLMAIHandler(BaseAiHandler):
         else:
             response = await acompletion(**kwargs)
             if response is None or len(response["choices"]) == 0:
-                raise openai.APIError
+                raise openai.APIError(
+                    f"No choices in model response from {model}",
+                    request=httpx.Request("POST", model),
+                    body=None,
+                )
             content = response["choices"][0]['message']['content']
             finish_reason = response["choices"][0]["finish_reason"]
             if not content:
