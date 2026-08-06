@@ -304,7 +304,13 @@ class PRReviewer:
         if self.is_answer:
             discussion_messages = self.git_provider.get_issue_comments()
 
-            for message in discussion_messages.reversed:
+            # providers return the comments oldest-first. PyGithub's PaginatedList reverses lazily,
+            # so prefer it and only materialise the plain lists other providers return.
+            newest_first = getattr(discussion_messages, "reversed", None)
+            if newest_first is None:
+                newest_first = reversed(list(discussion_messages))
+
+            for message in newest_first:
                 if "Questions to better understand the PR:" in message.body:
                     question_str = message.body
                 elif '/answer' in message.body:
