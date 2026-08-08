@@ -1,7 +1,5 @@
 import copy
 import datetime
-import traceback
-from collections import OrderedDict
 from functools import partial
 from typing import List, Tuple
 
@@ -13,20 +11,21 @@ from pr_agent.algo.pr_processing import (add_ai_metadata_to_diff_files,
                                          get_pr_diff,
                                          retry_with_fallback_models)
 from pr_agent.algo.repo_context import build_repo_context
+from pr_agent.algo.run_details import init_run_details
 from pr_agent.algo.skills_loader import get_skills_context
 from pr_agent.algo.token_handler import TokenHandler
 from pr_agent.algo.utils import (ModelType, PRReviewHeader,
                                  convert_to_markdown_v2, github_action_output,
-                                 load_yaml, show_relevant_configurations)
+                                 load_yaml, show_relevant_configurations,
+                                 show_run_details)
 from pr_agent.config_loader import get_settings
-from pr_agent.git_providers import (get_git_provider,
-                                    get_git_provider_with_context)
+from pr_agent.git_providers import (get_git_provider_with_context)
 from pr_agent.git_providers.git_provider import (IncrementalPR,
                                                  get_main_pr_language)
 from pr_agent.log import get_logger
 from pr_agent.servers.help import HelpMessage
 from pr_agent.tools.ticket_pr_compliance_check import (
-    extract_and_cache_pr_tickets, extract_tickets)
+    extract_and_cache_pr_tickets)
 
 MAX_REVIEW_COVERAGE_FILES = 50
 
@@ -125,6 +124,7 @@ class PRReviewer:
         return incremental
 
     async def run(self) -> None:
+        init_run_details()
         try:
             if not self.git_provider.get_files():
                 get_logger().info(f"PR has no files: {self.pr_url}, skipping review")
@@ -307,6 +307,10 @@ class PRReviewer:
         # Output the relevant configurations if enabled
         if get_settings().get('config', {}).get('output_relevant_configurations', False):
             markdown_text += show_relevant_configurations(relevant_section='pr_reviewer')
+
+        # Output the agent run details (model, tokens, time cost) if enabled
+        if get_settings().get('config', {}).get('output_run_details', False):
+            markdown_text += show_run_details(self.git_provider.is_supported("gfm_markdown"))
 
         # Add custom labels from the review prediction (effort, security)
         self.set_review_labels(data)
