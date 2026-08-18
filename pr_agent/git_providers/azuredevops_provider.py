@@ -81,6 +81,8 @@ class AzureDevopsProvider(GitProvider):
         self.unreviewed_files_map = {}
         self.pr_commits = None
         self.previous_review = None
+        self._published_inline_comment_bodies = []
+        self._inline_comment_store = None
         if pr_url:
             self.set_pr(pr_url)
 
@@ -122,6 +124,13 @@ class AzureDevopsProvider(GitProvider):
                 )
             except Exception as e:
                 get_logger().error(f"Azure failed to publish code suggestion, error: {e}", suggestion=suggestion)
+            else:
+                recent_bodies = getattr(self, "_published_inline_comment_bodies", None)
+                if recent_bodies is None:
+                    recent_bodies = []
+                    self._published_inline_comment_bodies = recent_bodies
+                if body not in recent_bodies:
+                    recent_bodies.append(body)
         return True
 
     def reply_to_comment_from_comment_id(self, comment_id: int, body: str, is_temporary: bool = False) -> Comment:
@@ -184,6 +193,8 @@ class AzureDevopsProvider(GitProvider):
         return True
 
     def set_pr(self, pr_url: str):
+        self._published_inline_comment_bodies = []
+        self._inline_comment_store = None
         self.pr_url = pr_url
         self.workspace_slug, self.repo_slug, self.pr_num = self._parse_pr_url(pr_url)
         self.pr = self._get_pr()
@@ -754,6 +765,31 @@ class AzureDevopsProvider(GitProvider):
 
     def get_user_id(self):
         return 0
+
+    def get_inline_comment_bodies(self) -> list[str]:
+        threads = self.azure_devops_client.get_threads(
+            repository_id=self.repo_slug,
+            pull_request_id=self.pr_num,
+            project=self.workspace_slug,
+        )
+        bodies = list(getattr(self, "_published_inline_comment_bodies", []))
+        for thread in threads or []:
+            context = getattr(thread, "thread_context", None)
+            if isinstance(context, dict):
+                is_line_comment = context.get("filePath") and context.get("rightFileStart")
+            else:
+                is_line_comment = (getattr(context, "file_path", None) and
+                                   getattr(context, "right_file_start", None))
+            if not is_line_comment:
+                continue
+            for comment in getattr(thread, "comments", None) or []:
+                content = comment.get("content") if isinstance(comment, dict) else getattr(comment, "content", None)
+                if content and content not in bodies:
+                    bodies.append(content)
+        return bodies
+
+    def get_recent_inline_comment_bodies(self) -> list[str]:
+        return list(getattr(self, "_published_inline_comment_bodies", []))
 
     def get_issue_comments(self) -> list[Comment]:
         threads = self.azure_devops_client.get_threads(repository_id=self.repo_slug, pull_request_id=self.pr_num, project=self.workspace_slug)
