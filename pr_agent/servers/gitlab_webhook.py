@@ -16,11 +16,11 @@ from starlette_context.middleware import RawContextMiddleware
 from pr_agent.agent.pr_agent import PRAgent
 from pr_agent.algo.utils import update_settings_from_args
 from pr_agent.config_loader import get_settings, global_settings
+from pr_agent.git_providers import get_git_provider_with_context
 from pr_agent.git_providers.utils import apply_repo_settings
 from pr_agent.log import LoggingFormat, get_logger, setup_logger
 from pr_agent.secret_providers import (get_secret_provider,
                                        validate_secret_provider_setting)
-from pr_agent.git_providers import get_git_provider_with_context
 
 setup_logger(fmt=LoggingFormat.JSON, level=get_settings().get("CONFIG.LOG_LEVEL", "DEBUG"))
 router = APIRouter()
@@ -59,7 +59,12 @@ async def handle_request(api_url: str, body: str, log_context: dict, sender_id: 
 
 async def _perform_commands_gitlab(commands_conf: str, agent: PRAgent, api_url: str,
                                    log_context: dict, data: dict):
-    apply_repo_settings(api_url)
+    feedback_on_draft = get_settings().get(
+        "gitlab.feedback_on_draft_pr", False
+    )
+    if is_draft(data) and not feedback_on_draft:
+        get_logger().info(f"Skipping draft MR: {api_url}")
+        return
     if commands_conf == "pr_commands" and get_settings().config.disable_auto_feedback:  # auto commands for PR, and auto feedback is disabled
         get_logger().info(f"Auto feedback is disabled, skipping auto commands for PR {api_url=}", **log_context)
         return
@@ -260,20 +265,13 @@ async def gitlab_webhook(background_tasks: BackgroundTasks, request: Request):
             if object_attributes.get('action') in ['open', 'reopen']:
                 url = object_attributes.get('url')
                 get_logger().info(f"New merge request: {url}")
-                if is_draft(data):
-                    get_logger().info(f"Skipping draft MR: {url}")
-                    return JSONResponse(status_code=status.HTTP_200_OK, content=jsonable_encoder({"message": "success"}))
-
+                apply_repo_settings(url)
                 await _perform_commands_gitlab("pr_commands", PRAgent(), url, log_context, data)
 
             # for push event triggered merge requests
             elif object_attributes.get('action') == 'update' and object_attributes.get('oldrev'):
                 url = object_attributes.get('url')
                 get_logger().info(f"New merge request: {url}")
-                if is_draft(data):
-                    get_logger().info(f"Skipping draft MR: {url}")
-                    return JSONResponse(status_code=status.HTTP_200_OK, content=jsonable_encoder({"message": "success"}))
-
                 # Apply repo settings before checking push commands or handle_push_trigger
                 apply_repo_settings(url)
 
@@ -292,7 +290,10 @@ async def gitlab_webhook(background_tasks: BackgroundTasks, request: Request):
                 url = object_attributes.get('url')
                 get_logger().info(f"Draft MR is ready: {url}")
 
-                # same as open MR
+                apply_repo_settings(url)
+                if get_settings().get("gitlab.feedback_on_draft_pr", False):
+                    get_logger().info(f"Skipping draft-ready commands because draft feedback is enabled: {url}")
+                    return
                 await _perform_commands_gitlab("pr_commands", PRAgent(), url, log_context, data)
 
         elif data.get('object_kind') == 'note' and data.get('event_type') == 'note': # comment on MR
