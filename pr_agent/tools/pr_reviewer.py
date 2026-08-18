@@ -370,7 +370,8 @@ class PRReviewer:
         return {"body": body,
                 "relevant_file": relevant_file,
                 "relevant_lines_start": start_line,
-                "relevant_lines_end": end_line}
+                "relevant_lines_end": end_line,
+                "fallback_to_pr_comment": False}
 
     def _can_verify_inline_key_issue_publication(self) -> bool:
         return can_verify_inline_comment_publication(self.git_provider)

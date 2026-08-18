@@ -71,6 +71,7 @@ class AzureDevopsProvider(GitProvider):
 
         self.azure_devops_client, self.azure_devops_board_client = self._get_azure_devops_client()
         self.diff_files = None
+        self._diff_path_map = None
         self.workspace_slug = None
         self.repo_slug = None
         self.repo = None
@@ -86,19 +87,83 @@ class AzureDevopsProvider(GitProvider):
         if pr_url:
             self.set_pr(pr_url)
 
+    def _resolve_diff_file_path(self, relevant_file: str) -> Optional[str]:
+        if not isinstance(relevant_file, str) or not relevant_file.strip():
+            return None
+        relevant_file = relevant_file.strip().strip("`").strip()
+        if not relevant_file:
+            return None
+        path_map = getattr(self, "_diff_path_map", None)
+        if path_map is None or getattr(self, "diff_files", None) is None:
+            diff_paths = [f.filename for f in (self.get_diff_files() or []) if f.filename]
+            path_map = {path: path for path in diff_paths}
+            for path in diff_paths:
+                path_map.setdefault(path.lstrip("/"), path)
+            if getattr(self, "diff_files", None) is not None:
+                self._diff_path_map = path_map
+        return path_map.get(relevant_file) or path_map.get(relevant_file.lstrip("/"))
+
+    @staticmethod
+    def _fallback_suggestion_section(suggestion: dict, reason: str) -> str:
+        relevant_file = str(suggestion["relevant_file"]).strip().strip("`").strip().replace("`", "")
+        location = (f"`{relevant_file}` "
+                    f"(lines {suggestion['relevant_lines_start']}-{suggestion['relevant_lines_end']})")
+        return f"{location} - {reason}\n\n{suggestion['body']}"
+
+    def _publish_fallback_suggestions(self, suggestions: list[tuple[dict, str]]) -> int:
+        sections = []
+        for suggestion, reason in suggestions:
+            try:
+                sections.append(self._fallback_suggestion_section(suggestion, reason))
+            except (KeyError, TypeError) as e:
+                get_logger().warning(f"Could not format Azure code suggestion fallback, error: {e}")
+        if not sections:
+            return 0
+        try:
+            self.publish_comment("\n\n---\n\n".join(sections))
+        except Exception as e:
+            get_logger().exception(f"Azure failed to publish code suggestion fallback, error: {e}")
+            published = 0
+            for suggestion, reason in suggestions:
+                try:
+                    self.publish_comment(self._fallback_suggestion_section(suggestion, reason))
+                except Exception as fallback_error:
+                    get_logger().exception(
+                        f"Azure failed to publish code suggestion fallback, error: {fallback_error}")
+                else:
+                    published += 1
+            return published
+        return len(sections)
+
     def publish_code_suggestions(self, code_suggestions: list) -> bool:
         """
         Publishes code suggestions as comments on the PR.
         """
-        post_parameters_list = []
+        publishable_count = 0
+        published_count = 0
+        fallback_suggestions = []
         status = get_settings().azure_devops.get("default_comment_status", "closed")
         for suggestion in code_suggestions:
-            body = suggestion['body']
-            relevant_file = suggestion['relevant_file']
-            relevant_lines_start = suggestion['relevant_lines_start']
-            relevant_lines_end = suggestion['relevant_lines_end']
+            try:
+                body = suggestion["body"]
+                relevant_file = suggestion["relevant_file"]
+                relevant_lines_start = suggestion["relevant_lines_start"]
+                relevant_lines_end = suggestion["relevant_lines_end"]
+            except (KeyError, TypeError) as e:
+                get_logger().warning(f"Could not parse Azure code suggestion, error: {e}")
+                continue
 
-            if not relevant_lines_start or relevant_lines_start == -1:
+            if (not isinstance(body, str) or not isinstance(relevant_file, str)
+                    or not isinstance(relevant_lines_start, int) or isinstance(relevant_lines_start, bool)
+                    or not isinstance(relevant_lines_end, int) or isinstance(relevant_lines_end, bool)):
+                get_logger().warning("Could not parse Azure code suggestion, invalid value types")
+                continue
+
+            if not relevant_file.strip().strip("`").strip():
+                get_logger().warning("Could not parse Azure code suggestion, relevant_file is empty")
+                continue
+
+            if relevant_lines_start < 1:
                 get_logger().warning(
                     f"Failed to publish code suggestion, relevant_lines_start is {relevant_lines_start}")
                 continue
@@ -109,8 +174,20 @@ class AzureDevopsProvider(GitProvider):
                                        f"relevant_lines_start is {relevant_lines_start}")
                 continue
 
+            publishable_count += 1
+            fallback_to_pr_comment = suggestion.get("fallback_to_pr_comment", True)
+            resolved_file = self._resolve_diff_file_path(relevant_file)
+            if not resolved_file:
+                if fallback_to_pr_comment:
+                    get_logger().warning(f"Could not match '{relevant_file}' to a file in the PR diff, "
+                                         f"publishing the suggestion as a PR-level comment")
+                    fallback_suggestions.append((suggestion, "could not be anchored to a file in the PR diff"))
+                else:
+                    get_logger().warning(f"Could not match '{relevant_file}' to a file in the PR diff")
+                continue
+
             thread_context = CommentThreadContext(
-                file_path=relevant_file,
+                file_path=resolved_file,
                 right_file_start=CommentPosition(offset=1, line=relevant_lines_start),
                 right_file_end=CommentPosition(offset=1, line=relevant_lines_end))
             comment = Comment(content=body, comment_type=1)
@@ -123,15 +200,20 @@ class AzureDevopsProvider(GitProvider):
                     pull_request_id=self.pr_num
                 )
             except Exception as e:
-                get_logger().error(f"Azure failed to publish code suggestion, error: {e}", suggestion=suggestion)
+                get_logger().exception(f"Azure failed to publish code suggestion, error: {e}", suggestion=suggestion)
+                if fallback_to_pr_comment:
+                    fallback_suggestions.append((suggestion, "could not be published as an inline comment"))
             else:
+                published_count += 1
                 recent_bodies = getattr(self, "_published_inline_comment_bodies", None)
                 if recent_bodies is None:
                     recent_bodies = []
                     self._published_inline_comment_bodies = recent_bodies
                 if body not in recent_bodies:
                     recent_bodies.append(body)
-        return True
+        if fallback_suggestions:
+            published_count += self._publish_fallback_suggestions(fallback_suggestions)
+        return published_count > 0 or publishable_count == 0
 
     def reply_to_comment_from_comment_id(self, comment_id: int, body: str, is_temporary: bool = False) -> Comment:
         # comment_id is actually thread_id
@@ -193,6 +275,8 @@ class AzureDevopsProvider(GitProvider):
         return True
 
     def set_pr(self, pr_url: str):
+        self.diff_files = None
+        self._diff_path_map = None
         self._published_inline_comment_bodies = []
         self._inline_comment_store = None
         self.pr_url = pr_url
@@ -208,6 +292,7 @@ class AzureDevopsProvider(GitProvider):
             # provider instance, so incremental filtering/rebuild is recomputed rather than
             # returning the full-PR diff.
             self.diff_files = None
+            self._diff_path_map = None
             self.unreviewed_files_map = {}
             self._get_incremental_commits()
 
@@ -418,6 +503,7 @@ class AzureDevopsProvider(GitProvider):
 
             if self.diff_files is not None:
                 return self.diff_files
+            self._diff_path_map = None
 
             if self.pr.last_merge_commit is None or self.pr.last_merge_target_commit is None:
                 get_logger().info(
@@ -685,8 +771,11 @@ class AzureDevopsProvider(GitProvider):
 
     def create_inline_comment(self, body: str, relevant_file: str, relevant_line_in_file: str,
                               absolute_position: int = None):
+        clean_relevant_file = relevant_file.strip().strip("`").strip() if isinstance(relevant_file, str) else ""
+        resolved_file = self._resolve_diff_file_path(clean_relevant_file)
+        lookup_file = resolved_file or clean_relevant_file
         position, absolute_position = find_line_number_of_relevant_line_in_file(self.get_diff_files(),
-                                                                                relevant_file.strip('`'),
+                                                                                lookup_file,
                                                                                 relevant_line_in_file,
                                                                                 absolute_position)
         if position == -1:
@@ -695,28 +784,47 @@ class AzureDevopsProvider(GitProvider):
             subject_type = "FILE"
         else:
             subject_type = "LINE"
-        path = relevant_file.strip()
-        return dict(body=body, path=path, position=position, absolute_position=absolute_position) if subject_type == "LINE" else {}
+        return dict(
+            body=body,
+            path=resolved_file,
+            relevant_file=clean_relevant_file,
+            position=position,
+            absolute_position=absolute_position,
+            subject_type=subject_type,
+        )
 
     def publish_inline_comments(self, comments: list[dict], disable_fallback: bool = False):
             overall_success = True
             for comment in comments:
+                if not comment:
+                    continue
                 try:
-                    self.publish_comment(comment["body"],
-                                        thread_context={
-                                            "filePath": comment["path"],
-                                            "rightFileStart": {
-                                                "line": comment["absolute_position"],
-                                                "offset": comment["position"],
-                                            },
-                                            "rightFileEnd": {
-                                                "line": comment["absolute_position"],
-                                                "offset": comment["position"],
-                                            },
-                                        })
+                    comment_body = comment["body"]
+                    relevant_file = comment.get("relevant_file") or "unknown file"
+                    thread_context = None
+                    if comment.get("path"):
+                        relevant_file = comment["path"]
+                        thread_context = {"filePath": relevant_file}
+                        if comment.get("subject_type", "LINE") == "LINE":
+                            thread_context["rightFileStart"] = {
+                                "line": comment["absolute_position"],
+                                "offset": comment["position"],
+                            }
+                            thread_context["rightFileEnd"] = {
+                                "line": comment["absolute_position"],
+                                "offset": comment["position"],
+                            }
+                        body = comment_body
+                    else:
+                        relevant_file = relevant_file.replace("`", "")
+                        get_logger().warning(f"Could not match '{relevant_file}' to a file in the PR diff, "
+                                             f"publishing the comment as a PR-level comment")
+                        body = (f"`{relevant_file}` - could not be anchored to a file in the PR diff\n\n"
+                                f"{comment_body}")
+                    self.publish_comment(body, thread_context=thread_context)
                     if get_settings().config.verbosity_level >= 2:
                         get_logger().info(
-                            f"Published code suggestion on {self.pr_num} at {comment['path']}"
+                            f"Published code suggestion on {self.pr_num} at {relevant_file}"
                         )
                 except Exception as e:
                     if get_settings().config.verbosity_level >= 2:
