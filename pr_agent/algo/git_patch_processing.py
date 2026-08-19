@@ -449,13 +449,17 @@ def extract_hunk_lines_from_patch(patch: str, file_name, line_start, line_end, s
                 patch_with_lines_str += f'\n{header_line}\n'
 
             elif not skip_hunk:
-                if side.lower() == 'right' and line_start <= start2 + selected_lines_num <= line_end:
-                    selected_lines += line + '\n'
-                if side.lower() == 'left' and start1 <= selected_lines_num + start1 <= line_end:
-                    selected_lines += line + '\n'
+                side_lower = side.lower()
+                if side_lower in ("left", "right"):
+                    is_left = side_lower == "left"
+                    hunk_start = start1 if is_left else start2
+                    line_exists_on_side = not line.startswith("+" if is_left else "-")
+                    in_range = line_start <= hunk_start + selected_lines_num <= line_end
+                    if in_range and (line_exists_on_side or not is_left):
+                        selected_lines += line + '\n'
+                    if line_exists_on_side:
+                        selected_lines_num += 1
                 patch_with_lines_str += line + '\n'
-                if not line.startswith('-'): # currently we don't support /ask line for deleted lines
-                    selected_lines_num += 1
     except Exception as e:
         get_logger().error(f"Failed to extract hunk lines from patch: {e}", artifact={"traceback": traceback.format_exc()})
         return "", ""
