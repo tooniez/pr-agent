@@ -216,15 +216,11 @@ def check_if_hunk_lines_matches_to_file(i, original_lines, patch_lines, start1):
 
 def extract_hunk_headers(match):
     res = list(match.groups())
-    for i in range(len(res)):
-        if res[i] is None:
-            res[i] = 0
-    try:
-        start1, size1, start2, size2 = map(int, res[:4])
-    except:  # '@@ -0,0 +1 @@' case
-        start1, size1, size2 = map(int, res[:3])
-        start2 = 0
-    section_header = res[4]
+    start1 = int(res[0]) if res[0] is not None else 0
+    size1 = int(res[1]) if res[1] is not None else 1
+    start2 = int(res[2]) if res[2] is not None else 0
+    size2 = int(res[3]) if res[3] is not None else 1
+    section_header = res[4] if res[4] is not None else ""
     return section_header, size1, size2, start1, start2
 
 
@@ -439,11 +435,11 @@ def extract_hunk_lines_from_patch(patch: str, file_name, line_start, line_end, s
                 # check if line range is in this hunk
                 if side.lower() == 'left':
                     # check if line range is in this hunk
-                    if not (start1 <= line_start <= start1 + size1):
+                    if not (start1 <= line_start <= start1 + size1 - 1):
                         skip_hunk = True
                         continue
                 elif side.lower() == 'right':
-                    if not (start2 <= line_start <= start2 + size2):
+                    if not (start2 <= line_start <= start2 + size2 - 1):
                         skip_hunk = True
                         continue
                 patch_with_lines_str += f'\n{header_line}\n'
