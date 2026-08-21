@@ -103,6 +103,17 @@ class AzureDevopsProvider(GitProvider):
                 self._diff_path_map = path_map
         return path_map.get(relevant_file) or path_map.get(relevant_file.lstrip("/"))
 
+    def _get_suggestion_end_offset(self, relevant_file: str, relevant_lines_end: int) -> Optional[int]:
+        for file in self.diff_files or []:
+            if file.filename != relevant_file or not isinstance(file.head_file, str):
+                continue
+            lines = file.head_file.splitlines()
+            if relevant_lines_end > len(lines):
+                return None
+            line = lines[relevant_lines_end - 1]
+            return len(line.encode("utf-16-le")) // 2 + 1
+        return None
+
     @staticmethod
     def _fallback_suggestion_section(suggestion: dict, reason: str) -> str:
         relevant_file = str(suggestion["relevant_file"]).strip().strip("`").strip().replace("`", "")
@@ -186,10 +197,25 @@ class AzureDevopsProvider(GitProvider):
                     get_logger().warning(f"Could not match '{relevant_file}' to a file in the PR diff")
                 continue
 
+            end_offset = 1
+            if "```suggestion" in body:
+                end_offset = self._get_suggestion_end_offset(resolved_file, relevant_lines_end)
+                if end_offset is None:
+                    if fallback_to_pr_comment:
+                        get_logger().warning(
+                            f"Could not resolve the full suggestion range in '{resolved_file}', "
+                            f"publishing the suggestion as a PR-level comment")
+                        fallback_suggestions.append(
+                            (suggestion, "could not resolve the complete line range in the PR diff"))
+                    else:
+                        get_logger().warning(
+                            f"Could not resolve the full suggestion range in '{resolved_file}'")
+                    continue
+
             thread_context = CommentThreadContext(
                 file_path=resolved_file,
                 right_file_start=CommentPosition(offset=1, line=relevant_lines_start),
-                right_file_end=CommentPosition(offset=1, line=relevant_lines_end))
+                right_file_end=CommentPosition(offset=end_offset, line=relevant_lines_end))
             comment = Comment(content=body, comment_type=1)
             thread = CommentThread(comments=[comment], thread_context=thread_context, status=status)
             try:
