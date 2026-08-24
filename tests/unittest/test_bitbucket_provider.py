@@ -74,6 +74,15 @@ class TestBitbucketProvider:
 
         response.raise_for_status.assert_called_once_with()
 
+    @pytest.mark.parametrize("comment", [{"id": 123}, 123])
+    def test_remove_comment_accepts_returned_comment_or_stored_id(self, comment):
+        provider = BitbucketProvider.__new__(BitbucketProvider)
+        provider.pr = MagicMock()
+
+        provider.remove_comment(comment)
+
+        provider.pr.delete.assert_called_once_with("comments/123")
+
 
 class TestBitbucketServerProvider:
     def test_parse_pr_url(self):
