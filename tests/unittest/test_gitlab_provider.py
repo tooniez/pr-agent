@@ -491,6 +491,57 @@ class TestGitLabProvider:
         gitlab_provider.mr.discussions.create.assert_not_called()
         gitlab_provider.mr.notes.create.assert_not_called()
 
+    def test_persistent_review_update_does_not_duplicate_when_status_message_fails(self, gitlab_provider):
+        # The review was already updated successfully, so a failure publishing the optional status
+        # message must not reach the outer fallback and publish the full review again.
+        header = "## PR Review"
+        existing = MagicMock()
+        existing.body = f"{header}\n\nprevious review"
+        gitlab_provider.mr = MagicMock()
+        gitlab_provider.get_issue_comments = MagicMock(return_value=[existing])
+        gitlab_provider.get_latest_commit_url = MagicMock(return_value="https://gitlab.com/c/abc")
+        gitlab_provider.get_comment_url = MagicMock(return_value="https://gitlab.com/n/1")
+        gitlab_provider.unresolve_comment_thread = MagicMock()
+        gitlab_provider.mr.notes.create.side_effect = Exception("status publish failed")
+
+        with patch("pr_agent.git_providers.git_provider.get_logger") as mock_get_logger:
+            result = gitlab_provider.publish_persistent_comment_full(f"{header}\n\nnew review",
+                                                                     initial_header=header,
+                                                                     update_header=True,
+                                                                     final_update_message=True,
+                                                                     as_thread=True)
+
+        assert result is existing
+        gitlab_provider.mr.notes.update.assert_called_once()
+        gitlab_provider.mr.notes.create.assert_called_once()
+        assert "updated to latest commit" in gitlab_provider.mr.notes.create.call_args.args[0]["body"]
+        gitlab_provider.mr.discussions.create.assert_not_called()
+        mock_get_logger.return_value.opt.assert_called_once_with(exception=True)
+        mock_get_logger.return_value.opt.return_value.warning.assert_called_once_with(
+            "Failed to publish persistent review update message; review was already updated")
+
+    def test_persistent_review_update_falls_back_when_edit_fails(self, gitlab_provider):
+        # A failure before the existing review is updated must retain the full-review fallback.
+        header = "## PR Review"
+        existing = MagicMock()
+        existing.body = f"{header}\n\nprevious review"
+        gitlab_provider.mr = MagicMock()
+        gitlab_provider.mr.discussions.create.return_value.attributes = {"notes": [{"id": 42}]}
+        gitlab_provider.get_issue_comments = MagicMock(return_value=[existing])
+        gitlab_provider.get_latest_commit_url = MagicMock(return_value="https://gitlab.com/c/abc")
+        gitlab_provider.get_comment_url = MagicMock(return_value="https://gitlab.com/n/1")
+        gitlab_provider.edit_comment = MagicMock(side_effect=Exception("edit failed"))
+
+        gitlab_provider.publish_persistent_comment_full(f"{header}\n\nnew review",
+                                                        initial_header=header,
+                                                        update_header=True,
+                                                        final_update_message=True,
+                                                        as_thread=True)
+
+        gitlab_provider.edit_comment.assert_called_once()
+        gitlab_provider.mr.discussions.create.assert_called_once_with({"body": f"{header}\n\nnew review"})
+        gitlab_provider.mr.notes.create.assert_not_called()
+
     def test_persistent_review_update_without_thread_keeps_resolution(self, gitlab_provider):
         # Without as_thread (the persistent comment isn't a thread), resolution state must not be touched.
         header = "## PR Review"

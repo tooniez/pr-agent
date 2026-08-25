@@ -411,8 +411,14 @@ class BitbucketProvider(GitProvider):
                     d = {"content": {"raw": pr_comment_updated}}
                     response = comment._update_data(comment.put(None, data=d))
                     if final_update_message:
-                        self.publish_comment(
-                            f"**[Persistent {name}]({comment_url})** updated to latest commit {latest_commit_url}")
+                        try:
+                            self.publish_comment(
+                                f"**[Persistent {name}]({comment_url})** updated to latest commit {latest_commit_url}")
+                        except Exception:
+                            # The review was already updated in place; a notification failure must not reach
+                            # the outer except, whose fallback publish would duplicate the review.
+                            get_logger().opt(exception=True).warning(
+                                "Failed to publish persistent review update message; review was already updated")
                     return
         except Exception as e:
             get_logger().exception(f"Failed to update persistent review, error: {e}")
