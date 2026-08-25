@@ -67,6 +67,59 @@ class TestAzureDevopsProviderRepoContext:
             provider.get_repo_file_content("AGENTS.md")
 
 
+class TestAzureDevopsProviderFiles:
+    @staticmethod
+    def _provider():
+        provider = AzureDevopsProvider.__new__(AzureDevopsProvider)
+        provider.repo_slug = "my-repo"
+        provider.workspace_slug = "my-project"
+        provider.pr_num = 1
+        provider.azure_devops_client = MagicMock()
+        provider.azure_devops_client.get_pull_request_commits.return_value = [SimpleNamespace(commit_id="m1")]
+        return provider
+
+    def test_get_files_full_skips_commits_without_changes(self):
+        provider = self._provider()
+        provider.azure_devops_client.get_pull_request_commits.return_value = [
+            SimpleNamespace(commit_id="m1"),
+            SimpleNamespace(commit_id="m2"),
+        ]
+        provider.azure_devops_client.get_changes.side_effect = [
+            SimpleNamespace(changes=None),
+            SimpleNamespace(changes=[{"item": {"path": "/src/app.py"}}]),
+        ]
+
+        assert provider._get_files_full() == ["/src/app.py"]
+
+    def test_get_files_full_skips_changes_without_paths(self):
+        provider = self._provider()
+        provider.azure_devops_client.get_changes.return_value = SimpleNamespace(changes=[
+            {},
+            {"item": None},
+            {"item": {"path": ""}},
+            {"item": {"path": "/src/app.py"}},
+        ])
+
+        assert provider._get_files_full() == ["/src/app.py"]
+
+    def test_get_files_full_supports_sdk_change_objects(self):
+        provider = self._provider()
+        provider.azure_devops_client.get_changes.return_value = SimpleNamespace(changes=[
+            SimpleNamespace(item=SimpleNamespace(path="/src/sdk.py")),
+        ])
+
+        assert provider._get_files_full() == ["/src/sdk.py"]
+
+    def test_get_files_full_skips_tree_entries(self):
+        provider = self._provider()
+        provider.azure_devops_client.get_changes.return_value = SimpleNamespace(changes=[
+            {"item": {"path": "/src", "gitObjectType": "tree"}},
+            {"item": {"path": "/src/app.py", "gitObjectType": "blob"}},
+        ])
+
+        assert provider._get_files_full() == ["/src/app.py"]
+
+
 def _provider_with_diff(*filenames):
     provider = AzureDevopsProvider.__new__(AzureDevopsProvider)
     provider.repo_slug = "my-repo"
