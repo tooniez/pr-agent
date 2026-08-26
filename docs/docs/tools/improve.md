@@ -29,11 +29,13 @@ To edit [configurations](#configuration-options) related to the `improve` tool, 
 /improve --pr_code_suggestions.some_config1=... --pr_code_suggestions.some_config2=...
 ```
 
-For example, you can choose to present all the suggestions as committable code comments, by running the following command:
+For example, you can present suggestions with verified replacement ranges as committable code comments by running:
 
 ```toml
 /improve --pr_code_suggestions.commitable_code_suggestions=true
 ```
+
+Suggestions whose replacement ranges cannot be verified remain regular comments without an apply action.
 
 ![improve](https://codium.ai/images/pr_agent/improve.png){width=512}
 
