@@ -18,7 +18,9 @@ from ..algo.file_filter import filter_ignored
 from ..algo.git_patch_processing import decode_if_bytes
 from ..algo.inline_comment_dedup import (body_fingerprint, body_with_markers,
                                          code_fingerprint,
-                                         get_inline_comment_store)
+                                         get_inline_comment_store,
+                                         is_agent_inline_comment,
+                                         marker_fingerprints)
 from ..algo.language_handler import is_valid_file
 from ..algo.utils import (clip_tokens, comment_matches_any_identity,
                           find_line_number_of_relevant_line_in_file,
@@ -57,6 +59,35 @@ def _parse_gitlab_iso_datetime(value) -> Optional[datetime]:
         return dt
     except (ValueError, AttributeError):
         return None
+
+
+def _is_outdated_own_inline_thread(discussion, own_user_id: int, current_head_sha: str) -> bool:
+    notes = discussion.attributes.get('notes') or []
+    if not notes or not isinstance(notes[0], dict):
+        return False
+    opener = notes[0]
+    if opener.get('resolved') or opener.get('resolvable') is False:
+        return False
+    position = opener.get('position')
+    if not isinstance(position, dict) or position.get('position_type') != 'text':
+        return False
+    if position.get('new_line') is None and position.get('old_line') is None:
+        return False
+    recorded_head_sha = position.get('head_sha')
+    if not recorded_head_sha or recorded_head_sha == current_head_sha:
+        return False
+    if not is_agent_inline_comment(opener.get('body')):
+        return False
+    for note in notes:
+        if not isinstance(note, dict):
+            return False
+        if note.get('system'):
+            continue
+        author = note.get('author')
+        author_id = author.get('id') if isinstance(author, dict) else None
+        if author_id != own_user_id:
+            return False
+    return True
 
 
 class _GitLabIncrementalCommit:
@@ -657,7 +688,7 @@ class GitLabProvider(GitProvider):
             except Exception as e:
                 get_logger().warning(
                     f"Could not resolve the authenticated GitLab user; "
-                    f"incremental anchor notes will not be filtered by author: {e}"
+                    f"author-based filtering is disabled for this run: {e}"
                 )
                 self._own_user_id = None
         return self._own_user_id
@@ -914,6 +945,46 @@ class GitLabProvider(GitProvider):
         except Exception as e:
             get_logger().warning(f"Failed to reopen resolved review thread: {e}")
 
+    def resolve_outdated_inline_threads(self):
+        if not get_settings().get("GITLAB.RESOLVE_OUTDATED_INLINE_THREADS", False):
+            return
+        own_user_id = self._get_own_user_id()
+        try:
+            current_head_sha = self.mr.diff_refs['head_sha']
+        except (KeyError, TypeError, AttributeError):
+            current_head_sha = None
+        if own_user_id is None or not current_head_sha:
+            get_logger().warning(
+                f"Skipping outdated inline thread cleanup on merge request {self.id_mr} "
+                f"(bot user: {own_user_id}, current head sha: {current_head_sha})"
+            )
+            return
+        try:
+            discussions = self.mr.discussions.list(get_all=True)
+        except Exception as e:
+            get_logger().warning(f"Failed to list discussions of merge request {self.id_mr}: {e}")
+            return
+        resolved = 0
+        released_fps = set()
+        for discussion in discussions:
+            discussion_id = getattr(discussion, 'id', None)
+            try:
+                if not _is_outdated_own_inline_thread(discussion, own_user_id, current_head_sha):
+                    continue
+                discussion.resolved = True
+                discussion.save()
+                resolved += 1
+                for note in discussion.attributes.get('notes') or []:
+                    if isinstance(note, dict):
+                        released_fps |= marker_fingerprints(note.get('body'))
+            except Exception as e:
+                get_logger().warning(f"Failed to resolve outdated inline thread {discussion_id}: {e}")
+        if released_fps:
+            get_inline_comment_store(self).release(released_fps)
+        if resolved:
+            get_logger().info(
+                f"Resolved {resolved} outdated inline thread(s) on merge request {self.id_mr}")
+
     def edit_comment_from_comment_id(self, comment_id: int, body: str):
         body = self.limit_output_characters(body, self.max_comment_chars)
         comment = self.mr.notes.get(comment_id)
@@ -1096,6 +1167,8 @@ class GitLabProvider(GitProvider):
         return self.last_diff  # fallback to the latest diff if no relevant diff is found
 
     def publish_code_suggestions(self, code_suggestions: list) -> bool:
+        # Runs first so the fingerprints it frees are in the store before any dedup lookup.
+        self.resolve_outdated_inline_threads()
         # When true, suggestions are queued as GitLab draft notes and published together in a single
         # batch at the end, instead of each one going out as its own live discussion (and its own
         # notification/email) as soon as it's created.

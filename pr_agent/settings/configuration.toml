@@ -305,6 +305,8 @@ publish_review_as_thread = false
 # note and publish them all together in one batch (like GitLab's own "start a review" flow) instead of
 # posting each as its own live discussion - and its own notification - as soon as it's created.
 publish_code_suggestions_as_review = false
+# Resolve the bot's own inline threads that a later push left on an outdated diff version.
+resolve_outdated_inline_threads = false
 pr_commands = [
     "/describe --pr_description.final_update_message=false",
     "/review",

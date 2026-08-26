@@ -389,6 +389,9 @@ class GitProvider(ABC):
         """Providers that implement resolve_comment_thread override this."""
         return False
 
+    def resolve_outdated_inline_threads(self):  # noqa: B027 - intentional no-op
+        pass
+
     def publish_persistent_comment(self, pr_comment: str,
                                    initial_header: str,
                                    update_header: bool = True,
