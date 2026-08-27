@@ -8,6 +8,7 @@ import html
 import json
 import os
 import re
+import string
 import sys
 import textwrap
 import time
@@ -81,6 +82,9 @@ class PRCodeSuggestionsIdentity(str, Enum):
 
 
 _REVIEW_IDENTITY_HEADER_LINES = 5
+_MARKDOWN_PUNCTUATION_ESCAPE_TABLE = str.maketrans(
+    {character: f"\\{character}" for character in string.punctuation}
+)
 
 
 def _get_configured_heading(setting_name: str, default_heading: str) -> str:
@@ -88,8 +92,7 @@ def _get_configured_heading(setting_name: str, default_heading: str) -> str:
     if (
         not isinstance(configured_heading, str)
         or not configured_heading.strip()
-        or "\n" in configured_heading
-        or "\r" in configured_heading
+        or configured_heading.splitlines() != [configured_heading]
     ):
         get_logger().warning(
             f"Invalid {setting_name}; using the default heading"
@@ -119,6 +122,14 @@ def format_pr_code_suggestions_header(markdown_level: int = 2) -> str:
     )
     markdown_prefix = "#" * markdown_level
     return f"{markdown_prefix} {heading} ✨"
+
+
+def format_pr_questions_header(*, escape_markdown: bool = True) -> str:
+    """Return the visible heading for top-level /ask answers."""
+    heading = _get_configured_heading("pr_questions.ask_heading", "Ask")
+    if escape_markdown:
+        heading = heading.translate(_MARKDOWN_PUNCTUATION_ESCAPE_TABLE)
+    return f"### **{heading}** ❓"
 
 
 def comment_matches_identity(body: str, identity: str) -> bool:
