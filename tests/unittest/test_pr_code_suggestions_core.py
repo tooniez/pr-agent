@@ -131,6 +131,273 @@ def test_dedent_code_matches_target_file_indentation():
     assert tool.dedent_code("app.py", 2, "return new()") == "    return new()"
 
 
+def test_dedent_code_preserves_relative_indentation_across_anchor_and_snippet_styles():
+    anchors = [
+        ("", "spaces", 0),
+        ("  ", "spaces", 2),
+        ("    ", "spaces", 4),
+        ("\t", "tabs", 1),
+        ("\t\t", "tabs", 2),
+    ]
+    indentation_units = [1, 2, 4]
+    initial_depths = [0, 1, 2]
+    relative_depth_patterns = [(0, 1, 0), (0, 1, 2)]
+    checked_cases = 0
+
+    for anchor, anchor_style, anchor_depth in anchors:
+        for indentation_unit in indentation_units:
+            for initial_depth in initial_depths:
+                for relative_depths in relative_depth_patterns:
+                    snippet = "\n".join(
+                        " " * ((initial_depth + relative_depth) * indentation_unit) + f"line_{index}"
+                        for index, relative_depth in enumerate(relative_depths)
+                    )
+                    if anchor_style == "tabs":
+                        expected = "\n".join(
+                            "\t" * (anchor_depth + relative_depth) + f"line_{index}"
+                            for index, relative_depth in enumerate(relative_depths)
+                        )
+                    else:
+                        expected = "\n".join(
+                            " " * (anchor_depth + relative_depth * indentation_unit) + f"line_{index}"
+                            for index, relative_depth in enumerate(relative_depths)
+                        )
+
+                    git_provider = MagicMock()
+                    git_provider.diff_files = [FilePatchInfo(
+                        base_file="",
+                        head_file=f"{anchor}anchor\n",
+                        patch="",
+                        filename="app.py",
+                    )]
+                    tool = _make_tool(git_provider)
+
+                    actual = tool.dedent_code("app.py", 1, snippet)
+
+                    assert actual == expected, (
+                        anchor, indentation_unit, initial_depth, relative_depths, actual, expected
+                    )
+                    checked_cases += 1
+
+    assert checked_cases == 90
+
+
+def test_dedent_code_preserves_existing_tab_indentation_levels():
+    git_provider = MagicMock()
+    git_provider.diff_files = [FilePatchInfo(
+        base_file="",
+        head_file="\t\tanchor\n",
+        patch="",
+        filename="app.py",
+    )]
+    tool = _make_tool(git_provider)
+
+    assert tool.dedent_code("app.py", 1, "\touter\n\t\tinner\n\touter") == (
+        "\t\touter\n\t\t\tinner\n\t\touter"
+    )
+
+
+@pytest.mark.parametrize("snippet", [
+    " outer\n   inner\n outer",
+    "   outer\n     inner\n   outer",
+    "\t outer\n\t   inner\n\t outer",
+])
+def test_dedent_code_infers_tab_depth_from_relative_widths(snippet):
+    git_provider = MagicMock()
+    git_provider.diff_files = [FilePatchInfo(
+        base_file="",
+        head_file="\tanchor\n",
+        patch="",
+        filename="app.py",
+    )]
+    tool = _make_tool(git_provider)
+
+    assert tool.dedent_code("app.py", 1, snippet) == "\touter\n\t\tinner\n\touter"
+
+
+def test_dedent_code_preserves_alignment_spaces_after_the_tab_anchor():
+    git_provider = MagicMock()
+    git_provider.diff_files = [FilePatchInfo(
+        base_file="",
+        head_file="\t    anchor\n",
+        patch="",
+        filename="app.py",
+    )]
+    tool = _make_tool(git_provider)
+
+    assert tool.dedent_code("app.py", 1, "outer\n    inner\nouter") == (
+        "\t    outer\n\t\t    inner\n\t    outer"
+    )
+
+
+@pytest.mark.parametrize("alignment_spaces", [1, 2])
+def test_dedent_code_preserves_continuation_alignment_spaces(alignment_spaces):
+    git_provider = MagicMock()
+    git_provider.diff_files = [FilePatchInfo(
+        base_file="",
+        head_file="\tanchor\n",
+        patch="",
+        filename="app.py",
+    )]
+    tool = _make_tool(git_provider)
+
+    snippet = "outer\n    inner\n        deeper\n" + " " * (8 + alignment_spaces) + "aligned"
+    assert tool.dedent_code("app.py", 1, snippet) == (
+        "\touter\n\t\tinner\n\t\t\tdeeper\n\t\t\t" + " " * alignment_spaces + "aligned"
+    )
+
+
+def test_dedent_code_preserves_alignment_without_adjacent_depths():
+    git_provider = MagicMock()
+    git_provider.diff_files = [FilePatchInfo(
+        base_file="",
+        head_file="\tanchor\n",
+        patch="",
+        filename="app.py",
+    )]
+    tool = _make_tool(git_provider)
+
+    snippet = "outer\n    inner\n            deeper\n              aligned"
+    assert tool.dedent_code("app.py", 1, snippet) == (
+        "\touter\n\t\tinner\n\t\t\t\tdeeper\n\t\t\t\t  aligned"
+    )
+
+
+def test_dedent_code_excludes_closed_continuations_from_unit_inference():
+    git_provider = MagicMock()
+    git_provider.diff_files = [FilePatchInfo(
+        base_file="",
+        head_file="\tanchor\n",
+        patch="",
+        filename="app.py",
+    )]
+    tool = _make_tool(git_provider)
+
+    snippet = "outer(\n  arg\n)\nif cond:\n    inner\n        deeper"
+    assert tool.dedent_code("app.py", 1, snippet) == (
+        "\touter(\n\t  arg\n\t)\n\tif cond:\n\t\tinner\n\t\t\tdeeper"
+    )
+
+
+def test_dedent_code_infers_structure_inside_a_closed_continuation():
+    git_provider = MagicMock()
+    git_provider.diff_files = [FilePatchInfo(
+        base_file="",
+        head_file="\tanchor\n",
+        patch="",
+        filename="app.py",
+    )]
+    tool = _make_tool(git_provider)
+
+    snippet = "outer(\n  function() {\n      if (cond) {\n          work()\n      }\n  }\n)"
+    assert tool.dedent_code("app.py", 1, snippet) == (
+        "\touter(\n\t  function() {\n\t\t  if (cond) {\n"
+        "\t\t\t  work()\n\t\t  }\n\t  }\n\t)"
+    )
+
+
+def test_dedent_code_preserves_spaces_in_a_pure_continuation():
+    git_provider = MagicMock()
+    git_provider.diff_files = [FilePatchInfo(
+        base_file="",
+        head_file="\tanchor\n",
+        patch="",
+        filename="app.py",
+    )]
+    tool = _make_tool(git_provider)
+
+    snippet = "call(\n    arg\n)"
+    assert tool.dedent_code("app.py", 1, snippet) == "\tcall(\n\t    arg\n\t)"
+
+
+def test_dedent_code_keeps_two_space_structural_indentation():
+    git_provider = MagicMock()
+    git_provider.diff_files = [FilePatchInfo(
+        base_file="",
+        head_file="\tanchor\n",
+        patch="",
+        filename="app.py",
+    )]
+    tool = _make_tool(git_provider)
+
+    snippet = "if outer:\n  if inner:\n    work()"
+    assert tool.dedent_code("app.py", 1, snippet) == (
+        "\tif outer:\n\t\tif inner:\n\t\t\twork()"
+    )
+
+
+def test_dedent_code_infers_structure_across_outdents_and_continuations():
+    git_provider = MagicMock()
+    git_provider.diff_files = [FilePatchInfo(
+        base_file="",
+        head_file="\t\t\tanchor\n",
+        patch="",
+        filename="app.py",
+    )]
+    tool = _make_tool(git_provider)
+
+    snippet = "        deep()\n    call(\n      arg\n    )\nouter()"
+    assert tool.dedent_code("app.py", 1, snippet) == (
+        "\t\t\tdeep()\n\t\tcall(\n\t\t  arg\n\t\t)\n\touter()"
+    )
+
+
+def test_dedent_code_removes_whitespace_from_blank_lines_when_shifting_left():
+    git_provider = MagicMock()
+    git_provider.diff_files = [FilePatchInfo(
+        base_file="",
+        head_file="    anchor\n",
+        patch="",
+        filename="app.py",
+    )]
+    tool = _make_tool(git_provider)
+
+    assert tool.dedent_code("app.py", 1, "        outer\n          \n            inner") == (
+        "    outer\n\n        inner"
+    )
+
+
+def test_dedent_code_ignores_blank_line_width_when_inferring_tab_depth():
+    git_provider = MagicMock()
+    git_provider.diff_files = [FilePatchInfo(
+        base_file="",
+        head_file="\tanchor\n",
+        patch="",
+        filename="app.py",
+    )]
+    tool = _make_tool(git_provider)
+
+    assert tool.dedent_code("app.py", 1, " outer\n       \n   inner\n outer") == (
+        "\touter\n\n\t\tinner\n\touter"
+    )
+
+
+def test_dedent_code_ignores_leading_blank_line_when_inferring_tab_depth():
+    git_provider = MagicMock()
+    git_provider.diff_files = [FilePatchInfo(
+        base_file="",
+        head_file="\tanchor\n",
+        patch="",
+        filename="app.py",
+    )]
+    tool = _make_tool(git_provider)
+
+    assert tool.dedent_code("app.py", 1, "\n  return new()") == "\n\treturn new()"
+
+
+def test_dedent_code_ignores_leading_blank_line_when_shifting_spaces():
+    git_provider = MagicMock()
+    git_provider.diff_files = [FilePatchInfo(
+        base_file="",
+        head_file="    anchor\n",
+        patch="",
+        filename="app.py",
+    )]
+    tool = _make_tool(git_provider)
+
+    assert tool.dedent_code("app.py", 1, "\n        return new()") == "\n    return new()"
+
+
 def test_dedent_code_uses_patch_when_file_content_is_unavailable():
     git_provider = MagicMock()
     git_provider.diff_files = [FilePatchInfo(
@@ -142,6 +409,20 @@ def test_dedent_code_uses_patch_when_file_content_is_unavailable():
     tool = _make_tool(git_provider)
 
     assert tool.dedent_code("app.py", 2, "return new()") == "    return new()"
+
+
+def test_dedent_code_uses_patch_when_head_file_is_partial():
+    git_provider = MagicMock()
+    git_provider.diff_files = [FilePatchInfo(
+        base_file="def f():\n    return older()\n",
+        head_file="def f():\n    return old()\n",
+        patch="@@ -19,2 +19,2 @@\n def f():\n-\told()\n+\told()\n",
+        filename="app.py",
+        head_file_is_complete=False,
+    )]
+    tool = _make_tool(git_provider)
+
+    assert tool.dedent_code("app.py", 20, "new()") == "\tnew()"
 
 
 @pytest.mark.asyncio
@@ -239,6 +520,75 @@ def _published_suggestion(git_provider):
     published = git_provider.publish_code_suggestions.call_args_list[0].args[0]
     assert len(published) == 1
     return published[0]
+
+
+def test_summarized_suggestions_use_the_target_file_indentation():
+    git_provider = _provider_with_file("func f() {\n\told()\n}\n", filename="main.go")
+    git_provider.get_line_link.return_value = "https://example.com/main.go#L2"
+    tool = _make_tool(git_provider)
+    suggestion = _valid_suggestion(
+        relevant_file="main.go",
+        relevant_lines_start=2,
+        relevant_lines_end=2,
+        existing_code="old()",
+        improved_code="replacement() {\n    nested()\n}",
+        score=8,
+    )
+
+    summary = tool.generate_summarized_suggestions({"code_suggestions": [suggestion]})
+
+    assert "+\treplacement() {" in summary
+    assert "+\t\tnested()" in summary
+    assert "+\t}" in summary
+
+
+def test_summarized_suggestions_use_patch_anchor_for_partial_head_file():
+    git_provider = MagicMock()
+    git_provider.diff_files = [FilePatchInfo(
+        base_file="func f() {\n\tolder()\n",
+        head_file="func f() {\n\told()\n",
+        patch="@@ -19,2 +19,2 @@\n func f() {\n-\tolder()\n+\told()\n",
+        filename="main.go",
+        head_file_is_complete=False,
+    )]
+    git_provider.get_line_link.return_value = "https://example.com/main.go#L20"
+    tool = _make_tool(git_provider)
+    suggestion = _valid_suggestion(
+        relevant_file="main.go",
+        relevant_lines_start=20,
+        relevant_lines_end=20,
+        existing_code="old()",
+        improved_code="replacement() {\n    nested()\n}",
+        score=8,
+    )
+
+    summary = tool.generate_summarized_suggestions({"code_suggestions": [suggestion]})
+
+    assert "+\treplacement() {" in summary
+    assert "+\t\tnested()" in summary
+    assert "+\t}" in summary
+
+
+def test_summarized_suggestions_normalize_both_sides_of_the_diff():
+    git_provider = _provider_with_file(
+        "func f() {\n\tif old() {\n\t\tkeep()\n\t}\n}\n",
+        filename="main.go",
+    )
+    git_provider.get_line_link.return_value = "https://example.com/main.go#L2-L4"
+    tool = _make_tool(git_provider)
+    suggestion = _valid_suggestion(
+        relevant_file="main.go",
+        relevant_lines_start=2,
+        relevant_lines_end=4,
+        existing_code="if old() {\n    keep()\n}",
+        improved_code="if new() {\n    keep()\n}",
+        score=8,
+    )
+
+    summary = tool.generate_summarized_suggestions({"code_suggestions": [suggestion]})
+
+    diff_block = summary.split("```diff\n", 1)[1].split("\n```", 1)[0]
+    assert diff_block == "-\tif old() {\n+\tif new() {\n \t\tkeep()\n \t}"
 
 
 @pytest.mark.asyncio

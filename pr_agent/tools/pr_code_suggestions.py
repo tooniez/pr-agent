@@ -876,6 +876,142 @@ class PRCodeSuggestions:
         return self._suggestion_applyability(relevant_file, relevant_lines_start,
                                              relevant_lines_end, existing_code)[0]
 
+    @staticmethod
+    def _shift_code_indentation(code_snippet: str, delta_spaces: int) -> str:
+        shifted_lines = []
+        for line in code_snippet.splitlines():
+            if not line.strip():
+                shifted_lines.append("")
+                continue
+            if delta_spaces > 0:
+                shifted_lines.append(" " * delta_spaces + line)
+            elif delta_spaces < 0:
+                shift = -delta_spaces
+                leading_whitespace = len(line) - len(line.lstrip())
+                shifted_lines.append(line[min(shift, leading_whitespace):])
+            else:
+                shifted_lines.append(line)
+        return "\n".join(shifted_lines)
+
+    @staticmethod
+    def _infer_space_indentation_unit(space_deltas: list[int]) -> int:
+        if not space_deltas:
+            return 1
+        unique_deltas = sorted(set(space_deltas))
+        for delta in unique_deltas:
+            if delta * 2 in unique_deltas:
+                return delta
+        return unique_deltas[0]
+
+    @staticmethod
+    def _continuation_space_adjustments(
+        lines: list[str],
+        leading_whitespace: list[str],
+    ) -> list[int]:
+        openers = []
+        adjustments = [0] * len(lines)
+        closer_for = {"(": ")", "[": "]"}
+        for index, (line, prefix) in enumerate(
+            zip(lines, leading_whitespace, strict=True)
+        ):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            for opener_position in range(len(openers) - 1, -1, -1):
+                opener_index, opener_prefix, closer = openers[opener_position]
+                if prefix == opener_prefix and stripped.startswith(closer):
+                    interior_indexes = [
+                        line_index
+                        for line_index in range(opener_index + 1, index)
+                        if lines[line_index].strip()
+                    ]
+                    opener_spaces = opener_prefix.count(" ")
+                    positive_offsets = [
+                        leading_whitespace[line_index].count(" ") - opener_spaces
+                        for line_index in interior_indexes
+                        if leading_whitespace[line_index].count(" ") > opener_spaces
+                    ]
+                    if positive_offsets:
+                        continuation_offset = min(positive_offsets)
+                        for line_index in interior_indexes:
+                            if leading_whitespace[line_index].count(" ") > opener_spaces:
+                                adjustments[line_index] += continuation_offset
+                    del openers[opener_position:]
+                    break
+            if stripped[-1] in closer_for:
+                openers.append((index, prefix, closer_for[stripped[-1]]))
+        return adjustments
+
+    @staticmethod
+    def _align_code_with_tabs(code_snippet: str, anchor_prefix: str) -> str:
+        lines = code_snippet.splitlines()
+        if not lines:
+            return code_snippet
+        leading_whitespace = [line[:len(line) - len(line.lstrip())] for line in lines]
+        anchor_depth = len(anchor_prefix) - len(anchor_prefix.lstrip("\t"))
+        anchor_alignment = anchor_prefix[anchor_depth:]
+        initial_index, initial_prefix = next(
+            (
+                (index, prefix)
+                for index, (line, prefix) in enumerate(
+                    zip(lines, leading_whitespace, strict=True)
+                )
+                if line.strip()
+            ),
+            (0, ""),
+        )
+        initial_spaces = initial_prefix.count(" ")
+        initial_tabs = initial_prefix.count("\t")
+        continuation_adjustments = PRCodeSuggestions._continuation_space_adjustments(
+            lines,
+            leading_whitespace,
+        )
+        initial_continuation_adjustment = continuation_adjustments[initial_index]
+        adjusted_initial_spaces = initial_spaces - initial_continuation_adjustment
+        space_deltas = [
+            abs(
+                prefix.count(" ")
+                - continuation_adjustments[index]
+                - adjusted_initial_spaces
+            )
+            for index, (line, prefix) in enumerate(
+                zip(lines, leading_whitespace, strict=True)
+            )
+            if (
+                line.strip()
+                and prefix.count(" ") - continuation_adjustments[index]
+                != adjusted_initial_spaces
+            )
+        ]
+        space_unit = PRCodeSuggestions._infer_space_indentation_unit(space_deltas)
+        aligned_lines = []
+        for index, (line, prefix) in enumerate(
+            zip(lines, leading_whitespace, strict=True)
+        ):
+            if not line.strip():
+                aligned_lines.append("")
+                continue
+            continuation_alignment = (
+                continuation_adjustments[index] - initial_continuation_adjustment
+            )
+            relative_space_depth, alignment_spaces = divmod(
+                prefix.count(" ")
+                - initial_spaces
+                - continuation_alignment,
+                space_unit,
+            )
+            relative_depth = (
+                prefix.count("\t") - initial_tabs
+                + relative_space_depth
+            )
+            aligned_lines.append(
+                "\t" * max(0, anchor_depth + relative_depth)
+                + anchor_alignment
+                + " " * (alignment_spaces + continuation_alignment)
+                + line[len(prefix):]
+            )
+        return "\n".join(aligned_lines).rstrip("\n")
+
     def dedent_code(self, relevant_file, relevant_lines_start, new_code_snippet):
         try:  # dedent code snippet
             self.diff_files = getattr(self.git_provider, "diff_files", None)
@@ -884,7 +1020,7 @@ class PRCodeSuggestions:
             original_initial_line = None
             for file in self.diff_files:
                 if file.filename.strip() == relevant_file:
-                    if file.head_file:
+                    if file.head_file and getattr(file, "head_file_is_complete", True):
                         file_lines = file.head_file.splitlines()
                         if relevant_lines_start > len(file_lines):
                             get_logger().warning(
@@ -909,14 +1045,18 @@ class PRCodeSuggestions:
                         original_initial_line = patch_lines[0]
                     break
             if original_initial_line:
-                suggested_initial_line = new_code_snippet.splitlines()[0]
-                original_initial_spaces = len(original_initial_line) - len(original_initial_line.lstrip()) # lstrip works both for spaces and tabs
+                suggested_initial_line = next(
+                    (line for line in new_code_snippet.splitlines() if line.strip()),
+                    "",
+                )
+                original_initial_spaces = len(original_initial_line) - len(original_initial_line.lstrip())
                 suggested_initial_spaces = len(suggested_initial_line) - len(suggested_initial_line.lstrip())
-                delta_spaces = original_initial_spaces - suggested_initial_spaces
-                if delta_spaces > 0:
-                    # Detect indentation character from original line
-                    indent_char = '\t' if original_initial_line.startswith('\t') else ' '
-                    new_code_snippet = textwrap.indent(new_code_snippet, delta_spaces * indent_char).rstrip('\n')
+                if original_initial_line.startswith("\t"):
+                    original_prefix = original_initial_line[:original_initial_spaces]
+                    new_code_snippet = self._align_code_with_tabs(new_code_snippet, original_prefix)
+                else:
+                    delta_spaces = original_initial_spaces - suggested_initial_spaces
+                    new_code_snippet = self._shift_code_indentation(new_code_snippet, delta_spaces)
         except Exception as e:
             get_logger().error(f"Error when dedenting code snippet for file {relevant_file}, error: {e}")
 
@@ -1137,8 +1277,14 @@ class PRCodeSuggestions:
                     CHAR_LIMIT_PER_LINE = 84
                     suggestion_content = insert_br_after_x_chars(suggestion_content, CHAR_LIMIT_PER_LINE)
                     # pr_body += f"<tr><td><details><summary>{suggestion_content}</summary>"
-                    existing_code = suggestion['existing_code'].rstrip() + "\n"
-                    improved_code = suggestion['improved_code'].rstrip() + "\n"
+                    existing_code = suggestion["existing_code"].rstrip()
+                    if existing_code:
+                        existing_code = self.dedent_code(relevant_file, relevant_lines_start, existing_code)
+                    existing_code += "\n"
+                    improved_code = suggestion["improved_code"].rstrip()
+                    if improved_code:
+                        improved_code = self.dedent_code(relevant_file, relevant_lines_start, improved_code)
+                    improved_code += "\n"
 
                     diff = difflib.unified_diff(existing_code.split('\n'),
                                                 improved_code.split('\n'), n=999)
