@@ -18,9 +18,9 @@ from pr_agent.algo import (CLAUDE_EXTENDED_THINKING_MODELS,
                            USER_MESSAGE_ONLY_MODELS)
 from pr_agent.algo.ai_handlers.base_ai_handler import BaseAiHandler
 from pr_agent.algo.ai_handlers.litellm_helpers import (
-    MockResponse, _get_azure_ad_token, _handle_streaming_response,
-    _process_litellm_extra_body)
-from pr_agent.algo.run_details import record_ai_call
+    _get_azure_ad_token, _handle_streaming_response,
+    _process_litellm_extra_body, _response_field)
+from pr_agent.algo.run_details import _as_decimal_cost, record_ai_call
 from pr_agent.algo.utils import ReasoningEffort, get_version
 from pr_agent.config_loader import get_settings
 from pr_agent.log import get_logger
@@ -377,12 +377,73 @@ class LiteLLMAIHandler(BaseAiHandler):
         return response_log
 
     @staticmethod
-    def _record_completion_metadata(response) -> None:
-        """Count the call and accumulate token usage when the provider reports it.
+    def _record_completion_metadata(response, model=None, display_model=None) -> None:
+        """Count a successful call and synchronously collect usage-based cost when possible."""
+        usage = _response_field(response, "usage")
 
-        Streaming models return a MockResponse without `usage`, so tokens stay unset.
+        cost_usd = None
+        if get_settings().get("config.output_run_cost", False):
+            # The guard covers the whole cost block, not just completion_cost:
+            # reading inline costs and probing usage call model_dump() on
+            # provider-specific objects, and a cost estimate must never fail a
+            # call that already succeeded and was billed.
+            try:
+                cost_usd = LiteLLMAIHandler._read_positive_response_cost(response, usage)
+                if cost_usd is None and model and LiteLLMAIHandler._has_priceable_usage(usage):
+                    # Preserve LiteLLM's full usage object so completion_cost can price cache,
+                    # reasoning, and provider-specific categories. Convert the small completed
+                    # stream wrapper to a dictionary while retaining `response.usage`.
+                    cost_response = response
+                    if not isinstance(response, dict) and not hasattr(response, "model_dump"):
+                        cost_response = response.dict()
+                    cost_usd = litellm.completion_cost(completion_response=cost_response, model=model)
+            except Exception as e:
+                # Treat missing model pricing or insufficient usage as an unavailable call cost.
+                # Retain the successful call so the collector marks the aggregate safely.
+                get_logger().debug(f"Unable to estimate API cost for model {model}: {type(e).__name__}")
+
+        recorded_model = display_model if display_model is not None else model
+        record_ai_call(usage, model=recorded_model, cost_usd=cost_usd)
+
+    @staticmethod
+    def _read_positive_response_cost(response, usage):
+        """Read a finalized inline cost, rejecting zero placeholders and invalid values."""
+        candidates = [
+            _response_field(usage, "response_cost"),
+            _response_field(usage, "cost"),
+        ]
+
+        hidden_params = _response_field(response, "_hidden_params")
+        if hasattr(hidden_params, "model_dump"):
+            hidden_params = hidden_params.model_dump()
+        if isinstance(hidden_params, dict):
+            candidates.append(hidden_params.get("response_cost"))
+
+        for candidate in candidates:
+            decimal_cost = _as_decimal_cost(candidate)
+            if decimal_cost is not None:
+                return decimal_cost
+        return None
+
+    @staticmethod
+    def _has_priceable_usage(usage) -> bool:
+        """Return true when finalized usage reports a positive token count.
+
+        Only token counters gate pricing: provider extras such as Groq's timing
+        floats (queue_time, prompt_time) are not billable quantities, and letting
+        them pass would send zero-token usage to completion_cost, which prices
+        it as 0.0 instead of raising.
         """
-        record_ai_call(getattr(response, "usage", None))
+        if usage is None:
+            return False
+        return any(
+            isinstance(count, int) and not isinstance(count, bool) and count > 0
+            for count in (
+                _response_field(usage, "prompt_tokens"),
+                _response_field(usage, "completion_tokens"),
+                _response_field(usage, "total_tokens"),
+            )
+        )
 
     def _configure_claude_extended_thinking(self, model: str, kwargs: dict) -> dict:
         """
@@ -913,19 +974,23 @@ class LiteLLMAIHandler(BaseAiHandler):
                     body=None,
                 ) from e
 
-            get_logger().debug(f"\nAI response:\n{resp}")
+        # Post-response bookkeeping happens outside the Bedrock IMDS lock above: it
+        # touches no os.environ credentials, and in IMDS mode the lock serializes
+        # every concurrent call, so holding it through logging and cost pricing
+        # would make each waiting coroutine pay for them serially.
+        get_logger().debug(f"\nAI response:\n{resp}")
 
-            # log the full response for debugging
-            response_log = self.prepare_logs(response_obj, system, user, resp, finish_reason)
-            get_logger().debug("Full_response", artifact=response_log)
+        # log the full response for debugging
+        response_log = self.prepare_logs(response_obj, system, user, resp, finish_reason)
+        get_logger().debug("Full_response", artifact=response_log)
 
-            # for CLI debugging
-            if get_settings().config.verbosity_level >= 2:
-                get_logger().info(f"\nAI response:\n{resp}")
+        # for CLI debugging
+        if get_settings().config.verbosity_level >= 2:
+            get_logger().info(f"\nAI response:\n{resp}")
 
-            self._record_completion_metadata(response_obj)
+        self._record_completion_metadata(response_obj, model=model, display_model=user_model)
 
-            return resp, finish_reason
+        return resp, finish_reason
 
     async def _get_completion(self, **kwargs):
         """
@@ -947,6 +1012,7 @@ class LiteLLMAIHandler(BaseAiHandler):
         # response normalization. Streaming avoids that conversion path.
         if model in self.streaming_required_models or force_streaming:
             kwargs["stream"] = True
+            kwargs["stream_options"] = {"include_usage": True}
             if force_streaming and model not in self.streaming_required_models:
                 get_logger().info(
                     f"Using streaming mode for model {model} "
@@ -955,10 +1021,7 @@ class LiteLLMAIHandler(BaseAiHandler):
             else:
                 get_logger().info(f"Using streaming mode for model {model}")
             response = await acompletion(**kwargs)
-            resp, finish_reason = await _handle_streaming_response(response)
-            # Create MockResponse for streaming since we don't have the full response object
-            mock_response = MockResponse(resp, finish_reason)
-            return resp, finish_reason, mock_response
+            return await _handle_streaming_response(response, model=model)
         else:
             response = await acompletion(**kwargs)
             if response is None or len(response["choices"]) == 0:
