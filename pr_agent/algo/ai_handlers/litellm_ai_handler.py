@@ -929,10 +929,16 @@ class LiteLLMAIHandler(BaseAiHandler):
                             effective_reasoning_effort = ""
                     if not effective_reasoning_effort:
                         if reasoning_max_tokens > 0 and openrouter_reasoning_effort:
-                            get_logger().warning(
-                                f"Ignoring config.reasoning_effort='{openrouter_reasoning_effort}' because "
-                                "openrouter.reasoning_max_tokens takes precedence."
-                            )
+                            if openrouter_reasoning_effort == "none":
+                                get_logger().warning(
+                                    f"Ignoring config.reasoning_effort='{openrouter_reasoning_effort}' because "
+                                    "openrouter.reasoning_max_tokens takes precedence."
+                                )
+                            else:
+                                get_logger().info(
+                                    "Using openrouter.reasoning_max_tokens over"
+                                    f" config.reasoning_effort='{openrouter_reasoning_effort}'."
+                                )
                         elif reasoning_max_tokens <= 0:
                             effective_reasoning_effort = openrouter_reasoning_effort or ""
 
