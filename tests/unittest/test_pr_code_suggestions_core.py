@@ -11,7 +11,8 @@ from pr_agent.algo.utils import (PRCodeSuggestionsHeader,
 from pr_agent.config_loader import get_settings
 from pr_agent.git_providers.git_provider import GitProvider, IncrementalPR
 from pr_agent.tools.pr_code_suggestions import PRCodeSuggestions
-from tests.unittest._settings_helpers import restore_settings, snapshot_settings
+from tests.unittest._settings_helpers import (restore_settings,
+                                              snapshot_settings)
 
 
 def _make_tool(git_provider=None):
@@ -156,6 +157,8 @@ async def test_prepare_prediction_main_keeps_successful_chunks_when_one_parallel
 
     assert calls == ["chunk-a", "chunk-b"]
     assert successful_chunk_finished.is_set()
+    assert tool.failed_chunk_count == 1
+    assert tool.total_chunk_count == 2
     assert data["code_suggestions"] == [_valid_suggestion(relevant_file="chunk-a.py")]
 
 
@@ -219,6 +222,8 @@ async def test_prepare_prediction_main_keeps_processing_after_one_sequential_chu
         settings.pr_code_suggestions.parallel_calls = original_parallel_calls
 
     assert calls == ["chunk-a", "chunk-b", "chunk-c"]
+    assert tool.failed_chunk_count == 1
+    assert tool.total_chunk_count == 3
     assert data["code_suggestions"] == [
         _valid_suggestion(relevant_file="chunk-a.py"),
         _valid_suggestion(relevant_file="chunk-c.py"),
@@ -266,6 +271,66 @@ async def test_prepare_prediction_main_keeps_outer_fallback_when_all_chunks_fail
         ("fallback-model", "chunk-b"),
     ]
     assert len(data["code_suggestions"]) == 2
+    assert tool.failed_chunk_count == 0
+    assert tool.total_chunk_count == 2
+
+
+def test_suggestions_coverage_footer_reports_partial_runs_and_respects_flag():
+    settings = get_settings()
+    snapshot = snapshot_settings(["pr_code_suggestions.enable_suggestions_coverage_footer"])
+    tool = _make_tool()
+    tool.failed_chunk_count = 1
+    tool.total_chunk_count = 3
+
+    try:
+        settings.set("pr_code_suggestions.enable_suggestions_coverage_footer", True)
+        footer = tool._get_suggestions_coverage_footer()
+        assert "1 of 3 analysis chunks failed" in footer
+        assert "successful chunks only" in footer
+
+        empty_footer = tool._get_suggestions_coverage_footer(suggestions_present=False)
+        assert "no suggestions were found in the successful chunks" in empty_footer
+        assert "failed chunks could not be analyzed" in empty_footer
+
+        settings.set("pr_code_suggestions.enable_suggestions_coverage_footer", False)
+        assert tool._get_suggestions_coverage_footer() == ""
+    finally:
+        restore_settings(snapshot)
+
+
+def test_suggestions_coverage_footer_is_safe_for_tools_built_without_init():
+    tool = _make_tool()
+
+    assert tool._get_suggestions_coverage_footer() == ""
+
+
+@pytest.mark.asyncio
+async def test_run_appends_partial_suggestions_coverage_to_the_summary():
+    snapshot = snapshot_settings([
+        "config.publish_output",
+        "data",
+        "pr_code_suggestions.enable_suggestions_coverage_footer",
+    ])
+    tool = _make_tool()
+    tool.pr_url = "https://example.test/pull/1"
+    tool.git_provider.get_files.return_value = ["app.py"]
+    tool.generate_summarized_suggestions = MagicMock(return_value="Base suggestions body")
+    tool.failed_chunk_count = 1
+    tool.total_chunk_count = 2
+
+    try:
+        get_settings().set("config.publish_output", False)
+        get_settings().set("pr_code_suggestions.enable_suggestions_coverage_footer", True)
+        with (patch("pr_agent.tools.pr_code_suggestions.init_run_details"),
+              patch("pr_agent.tools.pr_code_suggestions.retry_with_fallback_models",
+                    AsyncMock(return_value={"code_suggestions": [_valid_suggestion()]}))):
+            await tool.run()
+
+        artifact = get_settings().data["artifact"]
+        assert artifact.startswith("Base suggestions body")
+        assert "1 of 2 analysis chunks failed" in artifact
+    finally:
+        restore_settings(snapshot)
 
 
 def test_dedent_code_matches_target_file_indentation():
@@ -747,6 +812,8 @@ def test_summarized_suggestions_normalize_both_sides_of_the_diff():
 async def test_suggestion_covering_the_anchored_range_is_published_as_committable():
     git_provider = _provider_with_file("def f():\n    return old()\n")
     tool = _make_tool(git_provider)
+    tool.failed_chunk_count = 1
+    tool.total_chunk_count = 2
 
     await tool.push_inline_code_suggestions({"code_suggestions": [
         _valid_suggestion(
@@ -890,6 +957,28 @@ async def test_publish_no_suggestions_still_overwrites_the_progress_comment_when
 
 
 @pytest.mark.asyncio
+async def test_publish_no_suggestions_qualifies_partial_results(publish_output_no_suggestions):
+    publish_output_no_suggestions(True)
+    snapshot = snapshot_settings(["pr_code_suggestions.enable_suggestions_coverage_footer"])
+    git_provider = MagicMock()
+    git_provider.supports_code_suggestions_artifact.return_value = False
+    tool = _make_tool(git_provider)
+    tool.failed_chunk_count = 1
+    tool.total_chunk_count = 2
+
+    try:
+        get_settings().set("pr_code_suggestions.enable_suggestions_coverage_footer", True)
+        await tool.publish_no_suggestions()
+    finally:
+        restore_settings(snapshot)
+
+    body = git_provider.publish_comment.call_args.args[0]
+    assert "No code suggestions found in the successfully analyzed chunks." in body
+    assert "1 of 2 analysis chunks failed" in body
+    assert "failed chunks could not be analyzed" in body
+
+
+@pytest.mark.asyncio
 async def test_publish_no_suggestions_uses_provider_artifact_capability(publish_output_no_suggestions):
     publish_output_no_suggestions(True)
     git_provider = MagicMock()
@@ -898,9 +987,36 @@ async def test_publish_no_suggestions_uses_provider_artifact_capability(publish_
 
     await tool.publish_no_suggestions()
 
-    git_provider.publish_code_suggestions.assert_called_once_with([])
+    git_provider.publish_code_suggestions_artifact.assert_called_once_with(
+        [], artifact_footer="", no_suggestions_message="No code suggestions found for the PR.")
+    git_provider.publish_code_suggestions.assert_not_called()
     git_provider.publish_comment.assert_not_called()
     git_provider.edit_comment.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_publish_no_suggestions_keeps_partial_notice_in_disabled_output_artifact(
+        publish_output_no_suggestions):
+    publish_output_no_suggestions(True)
+    snapshot = snapshot_settings([
+        "config.publish_output",
+        "data",
+        "pr_code_suggestions.enable_suggestions_coverage_footer",
+    ])
+    tool = _make_tool()
+    tool.failed_chunk_count = 1
+    tool.total_chunk_count = 2
+
+    try:
+        get_settings().set("config.publish_output", False)
+        get_settings().set("pr_code_suggestions.enable_suggestions_coverage_footer", True)
+        await tool.publish_no_suggestions()
+        artifact = get_settings().data["artifact"]
+    finally:
+        restore_settings(snapshot)
+
+    assert "No code suggestions found in the successfully analyzed chunks." in artifact
+    assert "1 of 2 analysis chunks failed" in artifact
 
 
 def test_setup_incremental_scope_calls_provider_when_supported():
@@ -1025,6 +1141,7 @@ async def test_dual_publishing_keeps_suggestions_without_replacement_code():
         ]})
 
         assert "Use the shared helper." in _published_suggestion(git_provider)["body"]
+        git_provider.publish_comment.assert_not_called()
     finally:
         settings.set("pr_code_suggestions.dual_publishing_score_threshold", original_threshold)
 
