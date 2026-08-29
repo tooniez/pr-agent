@@ -4,8 +4,8 @@ This file is the shared source of repository guidance for coding agents. Tool-sp
 
 ## Dos and Don’ts
 
-- **Do** match the interpreter requirement declared in `pyproject.toml` (Python ≥ 3.12) and install `requirements.txt` plus `requirements-dev.txt` before running tools.
-- **Do** run tests with `PYTHONPATH=.` set to keep imports functional (for example `PYTHONPATH=. ./.venv/bin/pytest tests/unittest/test_fix_json_escape_char.py -q`).
+- **Do** match the interpreter requirement declared in `pyproject.toml` (Python ≥ 3.12) and install dependencies with `uv sync` (runtime + dev, from `uv.lock`) before running tools.
+- **Do** run tests with `PYTHONPATH=.` set to keep imports functional (for example `PYTHONPATH=. uv run pytest tests/unittest/test_fix_json_escape_char.py -q`).
 - **Do** adjust configuration through `.pr_agent.toml` or files under `pr_agent/settings/` instead of hard-coding values.
 - **Don’t** commit secrets or access tokens; rely on environment variables as shown in the health and e2e tests.
 - **Don’t** reformat or reorder files globally; match existing 120-character lines, import ordering, and docstring style.
@@ -62,10 +62,10 @@ Sensitive values should stay in environment variables or the gitignored `.secret
 
 ## Build, Test, and Development Commands
 
-- Create or activate a virtual environment, then install runtime dependencies with `pip install -r requirements.txt`; add development tooling via `pip install -r requirements-dev.txt`.
-- Run a single unit test (verified): `PYTHONPATH=. ./.venv/bin/pytest tests/unittest/test_fix_json_escape_char.py -q`.
-- Run the full unit suite: `PYTHONPATH=. ./.venv/bin/pytest tests/unittest -v`.
-- Execute the CLI locally once dependencies and API keys are available: `python -m pr_agent.cli --pr_url <https://host/org/repo/pull/123> review`.
+- Install dependencies (runtime + dev) into a project virtualenv from the lockfile with `uv sync`; `uv run` auto-syncs before each command.
+- Run a single unit test (verified): `PYTHONPATH=. uv run pytest tests/unittest/test_fix_json_escape_char.py -q`.
+- Run the full unit suite: `PYTHONPATH=. uv run pytest tests/unittest -v`.
+- Execute the CLI locally once dependencies and API keys are available: `uv run pr-agent --pr_url <https://host/org/repo/pull/123> review`.
 - Build the test Docker target mirror of CI when containerizing: `docker build -f docker/Dockerfile --target test .` (loads dev dependencies and copies `tests/`).
 - Generate and deploy documentation with MkDocs after installing the same extras as CI (`mkdocs-material`, `mkdocs-glightbox`): `mkdocs serve -f docs/mkdocs.yml` for previews and `mkdocs gh-deploy -f docs/mkdocs.yml` for publication.
 
@@ -76,7 +76,7 @@ The repository currently has overlapping Ruff, Flake8, and isort tooling. Until 
 - Keep Python lines within the 120-character limit declared in `pyproject.toml`.
 - `pyproject.toml` currently configures Ruff rules `E`, `F`, `B`, `I001`, and `I002`; only `I001` is listed as fixable.
 - `.pre-commit-config.yaml` currently runs standalone `isort` for Python import ordering, together with trailing-whitespace, final-newline, TOML, YAML, and large-file checks. Ruff and `ruff-format` hooks are present there only as commented examples.
-- `requirements-dev.txt` includes Flake8, but the repository has no dedicated Flake8 configuration, so a bare `flake8` does not use the project's 120-character line limit. If running Flake8, pass the scope and `--max-line-length=120` explicitly, and distinguish pre-existing findings from violations introduced by the change.
+- The `dev` dependency group in `pyproject.toml` includes Flake8, but the repository has no dedicated Flake8 configuration, so a bare `flake8` does not use the project's 120-character line limit. If running Flake8, pass the scope and `--max-line-length=120` explicitly, and distinguish pre-existing findings from violations introduced by the change.
 - The pre-commit GitHub Actions workflow is manual-only. The normal `build-and-test` workflow runs the unit suite rather than Ruff, Flake8, isort, or a formatter.
 - No general-purpose Python formatter is currently enforced. Preserve the surrounding file's formatting and avoid unrelated rewrites or repository-wide formatting.
 - If existing tools disagree, keep the patch focused rather than resolving the disagreement with unrelated mass changes; surface the conflict when it affects the task.
@@ -89,7 +89,7 @@ The repository currently has overlapping Ruff, Flake8, and isort tooling. Until 
 ## Testing Guidelines
 
 - Pytest is the standard framework; keep new tests under the closest matching directory (`tests/unittest/` for unit logic, `tests/e2e_tests/` for integration flows, `tests/health_test/` for smoke coverage).
-- Pytest configuration lives in `pyproject.toml`, including `asyncio_mode = "auto"` and `testpaths = ["tests"]`. The current Docker test image removes `pyproject.toml` after dependency installation, so CI does not inherit those settings; mark every async test explicitly with `@pytest.mark.asyncio`.
+- Pytest configuration lives in `pyproject.toml`, including `asyncio_mode = "auto"` and `testpaths = ["tests"]`. The Docker test image keeps `pyproject.toml` at `/app` (uv installs from it), so CI inherits these settings as well.
 - Prefer focused unit tests that isolate helpers in `pr_agent/algo/`, `pr_agent/tools/`, or provider adapters; use parameterized tests where existing files already do so.
 - Set `PYTHONPATH=.` when invoking pytest from the repository root to avoid import errors.
 - End-to-end suites require provider tokens (`TOKEN_GITHUB`, `TOKEN_GITLAB`, `BITBUCKET_USERNAME`, `BITBUCKET_PASSWORD`) and may take several minutes; run them only when credentials and sandboxes are configured.
