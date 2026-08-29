@@ -6,13 +6,27 @@ default_language_version:
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: v6.0.0
     hooks:
       - id: check-added-large-files
+        exclude: ^uv\.lock$ # lock file, 686 KB and generated
+      - id: check-ast
+      - id: check-case-conflict
+      - id: check-json
+      - id: check-merge-conflict
       - id: check-toml
       - id: check-yaml
+        args: [--unsafe]
+      - id: check-illegal-windows-names
+      - id: check-symlinks
+      - id: debug-statements
+      - id: destroyed-symlinks
       - id: end-of-file-fixer
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
       - id: trailing-whitespace
+        exclude: ^tests/unittest/test_extend_patch\.py$ # trailing space; stripping it breaks the test.
+
   # - repo: https://github.com/rhysd/actionlint
   #   rev: v1.7.3
   #   hooks:
