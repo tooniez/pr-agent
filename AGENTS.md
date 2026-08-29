@@ -71,20 +71,17 @@ Sensitive values should stay in environment variables or the gitignored `.secret
 
 ## Coding Style and Existing Tooling
 
-The repository currently has overlapping Ruff, Flake8, and isort tooling. Until their intended responsibilities are explicitly aligned, treat the points below as the checked-in state rather than an instruction to migrate or consolidate tools.
+Ruff is the single linting tool: `pyproject.toml` configures it and the pre-commit Ruff hook enforces it (Flake8 and the standalone isort hook have been removed).
 
 - Keep Python lines within the 120-character limit declared in `pyproject.toml`.
-- `pyproject.toml` currently configures Ruff rules `E`, `F`, `B`, `I001`, and `I002`; only `I001` is listed as fixable.
-- `.pre-commit-config.yaml` currently runs standalone `isort` for Python import ordering, together with trailing-whitespace, final-newline, TOML, YAML, and large-file checks. Ruff and `ruff-format` hooks are present there only as commented examples.
-- The `dev` dependency group in `pyproject.toml` includes Flake8, but the repository has no dedicated Flake8 configuration, so a bare `flake8` does not use the project's 120-character line limit. If running Flake8, pass the scope and `--max-line-length=120` explicitly, and distinguish pre-existing findings from violations introduced by the change.
-- The pre-commit GitHub Actions workflow is manual-only. The normal `build-and-test` workflow runs the unit suite rather than Ruff, Flake8, isort, or a formatter.
-- No general-purpose Python formatter is currently enforced. Preserve the surrounding file's formatting and avoid unrelated rewrites or repository-wide formatting.
-- If existing tools disagree, keep the patch focused rather than resolving the disagreement with unrelated mass changes; surface the conflict when it affects the task.
+- `pyproject.toml` configures Ruff rules `E`, `F`, `B`, `I001`, and `I002`; `I001` (import sorting), `F401` (unused imports), and `F541` (f-strings without placeholders) are fixable. The `lint.ignore` list defers pre-existing violations — treat it as a debt ledger: fix the code and drop entries rather than adding new ones.
+- Before committing, run `uv run ruff check --fix` on the files you touched and fix every issue it reports. Keep fixes mechanical (rename, remove unused imports, sort imports); do not alter program logic while cleaning up — if a lint fix would change behavior, surface it instead of applying it silently.
+- `.pre-commit-config.yaml` runs the Ruff hook plus trailing-whitespace, final-newline, TOML, YAML, and large-file checks; when pre-commit is available, run it on the files you touched (`pre-commit run --files <paths>`) and review the automatic edits so unrelated changes are not included. The pre-commit GitHub Actions workflow is manual-only (`workflow_dispatch`); the hooks are not enforced in CI.
+- No general-purpose Python formatter is currently enforced (`ruff format` is deliberately not adopted yet). Preserve the surrounding file's formatting and avoid unrelated rewrites or repository-wide formatting.
 - Prefer double quotes for Python strings where consistent with the surrounding file.
 - Match existing docstring and comment style—concise English comments using imperative phrasing only where necessary.
 - Configuration files in `pr_agent/settings/` are TOML; preserve formatting, section order, and comments when editing prompts or defaults.
 - Markdown in `docs/` uses MkDocs conventions (YAML front matter absent; rely on heading hierarchy already in place).
-- When pre-commit is available, run it on the files you touched (`pre-commit run --files <paths>`) rather than across the whole tree, and review the automatic edits so unrelated changes are not included.
 
 ## Testing Guidelines
 
