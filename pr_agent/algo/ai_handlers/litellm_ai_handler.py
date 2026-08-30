@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import json
 import os
+import re
 
 import httpx
 import litellm
@@ -514,6 +515,36 @@ class LiteLLMAIHandler(BaseAiHandler):
 
         return kwargs
 
+    @staticmethod
+    def _is_claude_adaptive_thinking_model(model: str) -> bool:
+        """Return whether a Claude model requires the adaptive thinking API."""
+        normalized_model = model.lower().replace("_", "-").replace(".", "-")
+        return re.search(
+            r"claude-(?:opus-4-(?:7|8)|(?:opus|sonnet|fable)-5)(?:[^0-9]|$)",
+            normalized_model,
+        ) is not None
+
+    def _configure_claude_adaptive_thinking(self, model: str, kwargs: dict) -> dict:
+        """Configure thinking for Claude models that reject token budgets."""
+        kwargs["thinking"] = {"type": "adaptive"}
+        effort = get_settings().config.reasoning_effort
+        if effort in ("low", "medium", "high", "xhigh", "max"):
+            kwargs["output_config"] = {"effort": effort}
+        get_logger().info(
+            f"Using adaptive thinking for model {model}"
+            + (f" with output_config effort '{effort}'" if "output_config" in kwargs else "")
+        )
+        # Adaptive-thinking Claude models have sampling parameters removed, so
+        # never send temperature here. This pop is load-bearing rather than
+        # defensive: NO_SUPPORT_TEMPERATURE_MODELS covers most of these ids
+        # after #2400/#2449, but not all of them. It carries
+        # bedrock/anthropic.claude-opus-4-7-v1:0 and
+        # bedrock/us.anthropic.claude-opus-4-7 without the two combined, so for
+        # bedrock/us.anthropic.claude-opus-4-7-v1:0 this line is the only thing
+        # stopping a temperature reaching the model.
+        kwargs.pop("temperature", None)
+        return kwargs
+
     def add_litellm_callbacks(self, kwargs) -> dict:
         probe = object()
         captured_extra = []
@@ -838,8 +869,20 @@ class LiteLLMAIHandler(BaseAiHandler):
                                 kwargs["allowed_openai_params"] = ["reasoning_effort"]
 
                 # https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking
-                if (model in self.claude_extended_thinking_models) and get_settings().config.get("enable_claude_extended_thinking", False):
-                    kwargs = self._configure_claude_extended_thinking(model, kwargs)
+                if self._is_claude_adaptive_thinking_model(model) and get_settings().config.get(
+                        "enable_claude_adaptive_thinking", False):
+                    kwargs = self._configure_claude_adaptive_thinking(model, kwargs)
+                elif (
+                    model in self.claude_extended_thinking_models
+                    and get_settings().config.get("enable_claude_extended_thinking", False)
+                ):
+                    if self._is_claude_adaptive_thinking_model(model):
+                        get_logger().warning(
+                            f"Skipping extended thinking for {model}: adaptive-only models reject "
+                            f"budget_tokens. Enable config.enable_claude_adaptive_thinking instead."
+                        )
+                    else:
+                        kwargs = self._configure_claude_extended_thinking(model, kwargs)
 
                 # Optional output token limit; 0 = unset. Without max_tokens some
                 # providers apply a low service-side default (Bedrock Converse: 4096,
