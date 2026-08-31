@@ -811,7 +811,7 @@ class PRCodeSuggestions:
 
         return data
 
-    async def push_inline_code_suggestions(self, data, include_coverage_footer: bool = True):
+    async def push_inline_code_suggestions(self, data, include_coverage_footer: bool = True) -> None:
         code_suggestions = []
         fallback_comments = []
         coverage_footer = self._get_suggestions_coverage_footer() if include_coverage_footer else ""
@@ -825,10 +825,10 @@ class PRCodeSuggestions:
                                       if empty_coverage_footer else "No suggestions found to improve this PR.")
             pr_body = no_suggestions_message + empty_coverage_footer
             if self.progress_response:
-                return self.git_provider.edit_comment(self.progress_response,
-                                                      body=pr_body)
+                self.git_provider.edit_comment(self.progress_response, body=pr_body)
             else:
-                return self.git_provider.publish_comment(pr_body)
+                self.git_provider.publish_comment(pr_body)
+            return
 
         for d in data['code_suggestions']:
             try:
@@ -891,6 +891,7 @@ class PRCodeSuggestions:
         if fallback_comments:
             self.git_provider.publish_comment("\n\n---\n\n".join(fallback_comments))
             self._output_published = True
+        return
 
     def _get_diff_file(self, relevant_file):
         diff_files = getattr(self.git_provider, "diff_files", None)
@@ -1227,6 +1228,7 @@ class PRCodeSuggestions:
                                                             model,
                                                             max_calls=get_settings().pr_code_suggestions.max_number_of_calls,
                                                             add_line_numbers=True)  # decouple hunk with line numbers
+                self.patches_diff_list_no_line_numbers = self.remove_line_numbers(self.patches_diff_list)
 
         if self.patches_diff_list:
             get_logger().info(f"Number of PR chunk calls: {len(self.patches_diff_list)}")
