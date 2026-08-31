@@ -713,6 +713,43 @@ class TestGitLabProvider:
 
         gitlab_provider.unresolve_comment_thread(MagicMock(id=1))  # must not raise
 
+    @pytest.mark.parametrize("resolvable,resolved,should_resolve", [
+        (True, False, True),    # open thread -> resolve it
+        (True, True, False),    # already resolved -> leave
+        (False, False, False),  # not resolvable -> nothing to do
+    ])
+    def test_resolve_comment_thread(self, gitlab_provider, resolvable, resolved, should_resolve):
+        discussion = MagicMock()
+        discussion.attributes = {'notes': [{'id': 42, 'resolvable': resolvable, 'resolved': resolved}]}
+        gitlab_provider.mr = MagicMock()
+        gitlab_provider.mr.discussions.list.return_value = [discussion]
+
+        assert gitlab_provider.resolve_comment_thread(42) is should_resolve
+
+        if should_resolve:
+            assert discussion.resolved is True
+            discussion.save.assert_called_once()
+        else:
+            discussion.save.assert_not_called()
+
+    def test_resolve_comment_thread_ignores_unrelated_discussions(self, gitlab_provider):
+        # An open discussion that does not own our note must be left untouched.
+        other = MagicMock()
+        other.attributes = {'notes': [{'id': 1, 'resolvable': True, 'resolved': False}]}
+        gitlab_provider.mr = MagicMock()
+        gitlab_provider.mr.discussions.list.return_value = [other]
+
+        assert gitlab_provider.resolve_comment_thread(99) is False
+
+        other.save.assert_not_called()
+
+    def test_resolve_comment_thread_soft_fails(self, gitlab_provider):
+        # A GitLab API error while resolving must not raise.
+        gitlab_provider.mr = MagicMock()
+        gitlab_provider.mr.discussions.list.side_effect = Exception("gitlab api error")
+
+        assert gitlab_provider.resolve_comment_thread(1) is False
+
     def _prepare_outdated_cleanup(self, gitlab_provider, threads, own_user_id=_BOT_USER_ID,
                                   current_head_sha=_CURRENT_HEAD_SHA):
         gitlab_provider._own_user_id = own_user_id

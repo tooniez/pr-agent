@@ -908,6 +908,9 @@ class GitLabProvider(GitProvider):
     def should_publish_review_as_thread(self) -> bool:
         return bool(get_settings().get("GITLAB.PUBLISH_REVIEW_AS_THREAD", False))
 
+    def should_publish_improve_as_thread(self) -> bool:
+        return bool(get_settings().get("GITLAB.PUBLISH_IMPROVE_AS_THREAD", False))
+
     def supports_review_comment_identity(self) -> bool:
         return True
 
@@ -976,6 +979,23 @@ class GitLabProvider(GitProvider):
                 return
         except Exception as e:
             get_logger().warning(f"Failed to reopen resolved review thread: {e}")
+
+    def resolve_comment_thread(self, comment_id) -> bool:
+        # Resolves by note id. /ask_line addresses threads by discussion id instead, so
+        # supports_thread_resolution() stays False and that path keeps skipping GitLab.
+        try:
+            for discussion in self.mr.discussions.list(get_all=True):
+                notes = discussion.attributes.get('notes', [])
+                if not any(note.get('id') == comment_id for note in notes):
+                    continue
+                if any(note.get('resolvable') and not note.get('resolved') for note in notes):
+                    discussion.resolved = True
+                    discussion.save()
+                    return True
+                return False
+        except Exception as e:
+            get_logger().warning(f"Failed to resolve comment thread: {e}")
+        return False
 
     def resolve_outdated_inline_threads(self):
         if not get_settings().get("GITLAB.RESOLVE_OUTDATED_INLINE_THREADS", False):

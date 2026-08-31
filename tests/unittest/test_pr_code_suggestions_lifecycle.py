@@ -21,6 +21,8 @@ _TRACKED_SETTINGS = (
 
 
 def _make_tool(provider):
+    # A bare MagicMock returns a truthy mock here, which would thread every publish call.
+    provider.should_publish_improve_as_thread.return_value = False
     tool = PRCodeSuggestions.__new__(PRCodeSuggestions)
     tool.git_provider = provider
     tool.pr_url = "https://example.invalid/pull/1"

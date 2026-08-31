@@ -391,6 +391,9 @@ class GitProvider(ABC):
     def should_publish_review_as_thread(self) -> bool:
         return False
 
+    def should_publish_improve_as_thread(self) -> bool:
+        return False
+
     def supports_review_comment_identity(self) -> bool:
         return False
 

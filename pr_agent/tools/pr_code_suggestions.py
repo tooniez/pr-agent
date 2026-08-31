@@ -187,7 +187,10 @@ class PRCodeSuggestions:
             if (get_settings().config.publish_output and get_settings().config.publish_output_progress and
                     not get_settings().config.get('is_auto_command', False)):
                 if self.git_provider.is_supported("gfm_markdown"):
-                    self.progress_response = self.git_provider.publish_comment(self.progress)
+                    # The progress comment later becomes the final suggestions comment (edited in place),
+                    # so it must already be a thread when threaded output is requested.
+                    self.progress_response = self.git_provider.publish_comment(self.progress,
+                                                                               **self._improve_thread_kwargs())
                 else:
                     self.progress_response = self.git_provider.publish_comment(
                         "Preparing suggestions...", is_temporary=True)
@@ -256,6 +259,7 @@ class PRCodeSuggestions:
                             progress_response=self.progress_response,
                             identity_marker=PRCodeSuggestionsIdentity.SUMMARY.value,
                             legacy_initial_header=PRCodeSuggestionsHeader.SUMMARY.value,
+                            as_thread=self.git_provider.should_publish_improve_as_thread(),
                         )
                         if published_comment is not None:
                             self.progress_response = None
@@ -269,7 +273,7 @@ class PRCodeSuggestions:
                             self.git_provider.edit_comment(self.progress_response, body=pr_body)
                             self.progress_response = None
                         else:
-                            self.git_provider.publish_comment(pr_body)
+                            self.git_provider.publish_comment(pr_body, **self._improve_thread_kwargs())
                         self._output_published = True
 
                     # dual publishing mode
@@ -369,8 +373,14 @@ class PRCodeSuggestions:
             get_logger().debug("PR output", artifact=pr_body)
             if self.progress_response:
                 self.git_provider.edit_comment(self.progress_response, body=pr_body)
+                if self._improve_thread_kwargs():
+                    # A mere status message isn't actionable; resolve the thread instead of
+                    # leaving it open for the user to close manually.
+                    self.git_provider.resolve_comment_thread(self.progress_response.id)
             else:
-                self.git_provider.publish_comment(pr_body)
+                comment = self.git_provider.publish_comment(pr_body, **self._improve_thread_kwargs())
+                if comment and self._improve_thread_kwargs():
+                    self.git_provider.resolve_comment_thread(comment.id)
         else:
             get_settings().data = {"artifact": pr_body if coverage_footer else ""}
             if self.progress_response:
@@ -395,6 +405,10 @@ class PRCodeSuggestions:
         except Exception as e:
             get_logger().error(f"Failed to publish dual publishing suggestions, error: {e}")
 
+    def _improve_thread_kwargs(self) -> dict:
+        # Providers that support it (GitLab) can post the suggestions comment as a resolvable thread.
+        return {"as_thread": True} if self.git_provider.should_publish_improve_as_thread() else {}
+
     @staticmethod
     def publish_persistent_comment_with_history(git_provider: GitProvider,
                                                 pr_comment: str,
@@ -406,7 +420,8 @@ class PRCodeSuggestions:
                                                 progress_response=None,
                                                 only_fold=False,
                                                 identity_marker: str | None = None,
-                                                legacy_initial_header: str | None = None):
+                                                legacy_initial_header: str | None = None,
+                                                as_thread: bool = False):
         def _clean_up_progress_note() -> bool:
             if not progress_response:
                 return True
@@ -588,7 +603,7 @@ class PRCodeSuggestions:
             git_provider.edit_comment(progress_response, pr_comment)
             new_comment = progress_response
         else:
-            new_comment = git_provider.publish_comment(pr_comment)
+            new_comment = git_provider.publish_comment(pr_comment, **({"as_thread": True} if as_thread else {}))
         return new_comment
 
 
