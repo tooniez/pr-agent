@@ -438,9 +438,36 @@ class GerritProvider(GitProvider):
         # but required by the interface
         pass
 
+    def cleanup(self):
+        """Remove the temporary cloned repository from disk."""
+        if self.repo_path and pathlib.Path(self.repo_path).exists():
+            try:
+                shutil.rmtree(self.repo_path)
+                get_logger().info("Cleaned up temp repo at {}", self.repo_path)
+            except (OSError, PermissionError) as e:
+                get_logger().warning(
+                    "Failed to clean up temp repo at {}: {}",
+                    self.repo_path, e
+                )
+
+    def __del__(self):
+        """Safety net: clean up temp repo if cleanup() was not called.
+
+        The server's finally block can only reach providers stored in
+        starlette_context. PRQuestions builds its own provider with
+        get_git_provider(), so an /ask request never registers there and
+        would leak its clone without this.
+        """
+        try:
+            self.cleanup()
+        except Exception as e:
+            get_logger().debug("Temp repo cleanup failed during __del__: {}", e)
+
     def remove_initial_comment(self):
-        # remove repo, cloned in previous steps
-        # shutil.rmtree(self.repo_path)
+        # Do NOT call cleanup() here — this method is invoked during the
+        # request lifecycle while the cloned repo is still needed by
+        # subsequent commands.  Actual cleanup happens in the server's
+        # finally block and in __del__ as a safety net.
         pass
 
     def remove_comment(self, comment):
