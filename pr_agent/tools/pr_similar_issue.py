@@ -320,6 +320,8 @@ class PRSimilarIssue:
         score_list = []
 
         if get_settings().pr_similar_issue.vectordb == "pinecone":
+            import pinecone
+
             pinecone_index = pinecone.Index(index_name=self.index_name)
             res = pinecone_index.query(embeds[0],
                                     top_k=5,
@@ -431,6 +433,10 @@ class PRSimilarIssue:
         return issue_str, comments, number
 
     def _update_index_with_issues(self, issues_list, repo_name_for_index, upsert=False):
+        import pandas as pd
+        import pinecone
+        from pinecone_datasets import Dataset, DatasetMetadata
+
         get_logger().info('Processing issues...')
         corpus = Corpus()
         example_issue_record = Record(
@@ -514,6 +520,8 @@ class PRSimilarIssue:
         get_logger().info('Done')
 
     def _update_table_with_issues(self, issues_list, repo_name_for_index, ingest=False):
+        import pandas as pd
+
         get_logger().info('Processing issues...')
 
         corpus = Corpus()
