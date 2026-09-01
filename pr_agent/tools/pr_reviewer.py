@@ -29,6 +29,7 @@ from pr_agent.algo.utils import (
     convert_to_markdown_v2,
     github_action_output,
     load_yaml,
+    push_outputs,
     show_relevant_configurations,
     show_run_details,
 )
@@ -372,6 +373,12 @@ class PRReviewer:
         # Output the agent run details (model, tokens, time cost) if enabled
         if get_settings().get('config', {}).get('output_run_details', False):
             markdown_text += show_run_details(self.git_provider.is_supported("gfm_markdown"))
+
+        # Emit the review to optional external sinks (stdout/file/webhook/slack); no-op unless enabled.
+        # publish_output gates it so a dry run makes no external calls. The "no major issues"
+        # suppression deliberately does not: that only silences the PR comment.
+        if get_settings().config.publish_output:
+            push_outputs("review", payload=data.get('review', {}), markdown=markdown_text)
 
         # Add custom labels from the review prediction (effort, security)
         self.set_review_labels(data)

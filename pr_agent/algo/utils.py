@@ -12,11 +12,12 @@ import sys
 import textwrap
 import time
 import traceback
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from enum import Enum
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any, Iterable, List, Tuple, TypedDict
+from urllib.parse import urlparse
 
 import html2text
 import requests
@@ -1579,6 +1580,77 @@ def github_action_output(output_data: dict, key_name: str):
     except Exception as e:
         get_logger().error(f"Failed to write to GitHub Action output: {e}")
     return
+
+
+def _push_outputs_sink_url(cfg: dict, key: str) -> str:
+    """Return cfg[key] if it is an absolute https URL with a host, else "" (with a warning).
+
+    Requiring https keeps the review text, which can quote private code, off plaintext
+    transports. The host is not restricted: self-hosted collectors and Slack-compatible
+    endpoints (Mattermost, Rocket.Chat) are legitimate targets.
+    """
+    url = cfg.get(key) or ''
+    if not url:
+        return ''
+    parsed = urlparse(url)
+    if parsed.scheme != 'https' or not parsed.hostname:
+        # Log the key, never the value: a webhook URL is itself the credential.
+        get_logger().warning(f"push_outputs: ignoring {key}, expected an absolute https:// URL")
+        return ''
+    return url
+
+
+def push_outputs(message_type: str, payload: dict | None = None, markdown: str | None = None) -> None:
+    """Emit a tool's output to external sinks, without calling any git-provider API.
+
+    Controlled by the [push_outputs] config section (disabled by default). Supported channels:
+    "stdout" (one JSON line), "file" (append JSONL), "webhook" (POST the generic record),
+    "slack" (POST {"text": ...} to a Slack Incoming Webhook). Non-fatal: never raises.
+    """
+    try:
+        cfg = get_settings().get('push_outputs', {}) or {}
+        enable = cfg.get('enable', False)
+        if isinstance(enable, str):  # env vars arrive as strings; treat "false"/"0"/"no"/"" as off
+            enable = enable.lower().strip() not in ("false", "0", "no", "")
+        if not enable:
+            return
+
+        channels = cfg.get('channels', []) or []
+        record = {
+            "type": message_type,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "payload": payload or {},
+        }
+        if markdown is not None:
+            record["markdown"] = markdown
+
+        if "stdout" in channels:
+            print(json.dumps(record, ensure_ascii=False))
+
+        if "file" in channels:
+            file_path = cfg.get('file_path', 'pr-agent-outputs/reviews.jsonl')
+            folder = os.path.dirname(file_path)
+            if folder:
+                os.makedirs(folder, exist_ok=True)
+            with open(file_path, 'a', encoding='utf-8') as fh:
+                fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+        # Local channels first, network last, so a failed POST can't lose a file write.
+        # allow_redirects=False: never follow a redirect from a configured sink to another host.
+        if "webhook" in channels:
+            webhook_url = _push_outputs_sink_url(cfg, 'webhook_url')
+            if webhook_url:
+                requests.post(webhook_url, json=record, timeout=5, allow_redirects=False)
+
+        # Slack Incoming Webhooks accept {"text": ...} directly, no relay service needed.
+        if "slack" in channels:
+            slack_webhook_url = _push_outputs_sink_url(cfg, 'slack_webhook_url')
+            if slack_webhook_url:
+                text = markdown if markdown is not None else json.dumps(payload or {}, ensure_ascii=False)
+                requests.post(slack_webhook_url, json={"text": text}, timeout=5, allow_redirects=False)
+    except Exception as e:
+        # Log only the exception type: requests errors embed the (secret-bearing) URL in their text.
+        get_logger().warning(f"push_outputs failed: {type(e).__name__}")
 
 
 def _render_setting_value(value) -> str:
