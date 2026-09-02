@@ -28,6 +28,9 @@ class _FakeProvider:
     def get_commit_messages(self):
         return "Add a small change"
 
+    def supports_threaded_pr_questions(self):
+        return False
+
 
 class _FakeAIHandler:
     main_pr_language = None

@@ -17,7 +17,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from enum import Enum
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any, Iterable, List, Tuple, TypedDict
-from urllib.parse import urlparse
+from urllib.parse import quote, unquote, urlparse
 
 import html2text
 import requests
@@ -32,6 +32,23 @@ from pr_agent.algo.token_handler import TokenEncoder
 from pr_agent.algo.types import FilePatchInfo
 from pr_agent.config_loader import get_settings, get_verbosity_level, global_settings
 from pr_agent.log import get_logger
+
+_ENCODED_USER_TEXT_PREFIX = "__pr_agent_encoded_text__:"
+
+
+def encode_user_text_arg(value: str) -> str:
+    return _ENCODED_USER_TEXT_PREFIX + quote(value, safe="")
+
+
+def decode_user_text_args(args: List[str] | None) -> str:
+    if not args:
+        return ""
+    return " ".join(
+        unquote(arg[len(_ENCODED_USER_TEXT_PREFIX):])
+        if arg.startswith(_ENCODED_USER_TEXT_PREFIX)
+        else arg
+        for arg in args
+    )
 
 
 def get_model(model_type: str = "model_weak") -> str:
@@ -78,8 +95,16 @@ class PRCodeSuggestionsHeader(str, Enum):
 class PRCodeSuggestionsIdentity(str, Enum):
     SUMMARY = "<!-- pr-agent:improve:summary -->"
     NO_SUGGESTIONS = "<!-- pr-agent:improve:no-suggestions -->"
+    UNANCHORED = "<!-- pr-agent:improve:unanchored -->"
 
 
+_ALL_COMMENT_IDENTITIES = (
+    PRReviewIdentity.REGULAR.value,
+    PRReviewIdentity.INCREMENTAL.value,
+    PRCodeSuggestionsIdentity.SUMMARY.value,
+    PRCodeSuggestionsIdentity.NO_SUGGESTIONS.value,
+    PRCodeSuggestionsIdentity.UNANCHORED.value,
+)
 _REVIEW_IDENTITY_HEADER_LINES = 5
 _MARKDOWN_PUNCTUATION_ESCAPE_TABLE = str.maketrans(
     {character: f"\\{character}" for character in string.punctuation}
@@ -145,6 +170,14 @@ def comment_matches_identity(body: str, identity: str) -> bool:
 
 def comment_matches_any_identity(body: str, identities: Iterable[str]) -> bool:
     return any(comment_matches_identity(body, identity) for identity in identities)
+
+
+def comment_carries_other_identity(body: str, identity_marker: str | None) -> bool:
+    """Return whether the comment carries a different hidden identity."""
+    return comment_matches_any_identity(
+        body,
+        [identity for identity in _ALL_COMMENT_IDENTITIES if identity != identity_marker],
+    )
 
 
 def get_pr_review_comment_identifiers(*, full: bool, incremental: bool) -> tuple[str, ...]:

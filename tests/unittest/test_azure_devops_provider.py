@@ -1,9 +1,12 @@
+import json
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
+from pr_agent.algo.inline_comment_dedup import code_fingerprint
 from pr_agent.algo.types import FilePatchInfo
+from pr_agent.algo.utils import PRCodeSuggestionsIdentity
 from pr_agent.git_providers.azuredevops_provider import AzureDevopsProvider
 from pr_agent.log import get_logger
 
@@ -220,6 +223,27 @@ def _suggestion(relevant_file):
     }
 
 
+class TestAzureDevopsProviderPersistentComments:
+    def test_failed_persistent_edit_publishes_the_new_result(self):
+        provider = _provider_with_diff("/src/app.py")
+        existing = MagicMock(body="## PR Code Suggestions ✨\n\nold suggestions")
+        fallback = MagicMock()
+        provider.get_issue_comments = MagicMock(return_value=[existing])
+        provider.get_latest_commit_url = MagicMock(return_value="https://example.test/commit/deadbee")
+        provider.get_comment_url = MagicMock(return_value="https://example.test/comment/1")
+        provider.publish_comment = MagicMock(return_value=fallback)
+        provider.azure_devops_client.update_comment.side_effect = RuntimeError("update failed")
+
+        result = provider.publish_persistent_comment(
+            "## PR Code Suggestions ✨\n\nnew suggestions",
+            "## PR Code Suggestions ✨",
+            final_update_message=False,
+        )
+
+        assert result is fallback
+        provider.publish_comment.assert_called_once()
+
+
 class TestAzureDevopsProviderSuggestionAnchoring:
     def test_suggestion_without_leading_slash_is_published_with_the_diff_path(self):
         provider = _provider_with_diff("/src/Api/Controllers/SomeController.cs")
@@ -304,6 +328,277 @@ class TestAzureDevopsProviderSuggestionAnchoring:
         context = _created_threads(provider)[0].thread_context
         assert context.right_file_start.offset == 1
         assert context.right_file_end.offset == 1
+
+    def test_persistent_inline_comments_skip_existing_code_suggestion(self):
+        provider = _provider_with_diff("/src/app.py")
+        body = "**Suggestion:** use the value\n```suggestion\nvalue = 1\n```"
+        marker = code_fingerprint("src/app.py", "1-1", body)
+        existing = MagicMock()
+        existing.thread_context = MagicMock()
+        existing.thread_context.file_path = "/src/app.py"
+        existing.thread_context.right_file_start = SimpleNamespace(line=1)
+        existing.thread_context.right_file_end = SimpleNamespace(line=1)
+        existing.status = "fixed"
+        existing.comments = [MagicMock(content=f"different wording\n\n<!-- pr-agent-dedup-code: {marker} -->")]
+        provider.azure_devops_client.get_threads.return_value = [existing]
+
+        with patch("pr_agent.git_providers.azuredevops_provider.get_settings") as settings:
+            settings.return_value.get.side_effect = lambda key, default=None: (
+                True if key == "config.persistent_inline_comments" else default
+            )
+            settings.return_value.azure_devops.get.return_value = "active"
+            result = provider.publish_code_suggestions([{
+                "body": body,
+                "relevant_file": "/src/app.py",
+                "relevant_lines_start": 1,
+                "relevant_lines_end": 1,
+            }])
+
+        assert result is True
+        provider.azure_devops_client.create_thread.assert_not_called()
+
+    def test_persistent_inline_comments_bootstrap_markerless_suggestion(self):
+        provider = _provider_with_diff("/src/app.py")
+        body = "**Suggestion:** use the value\n```suggestion\nvalue = 1\n```"
+        existing = MagicMock()
+        existing.thread_context = MagicMock()
+        existing.thread_context.file_path = "/src/app.py"
+        existing.thread_context.right_file_start = SimpleNamespace(line=5)
+        existing.thread_context.right_file_end = SimpleNamespace(line=5)
+        existing.comments = [MagicMock(content=body)]
+        provider.azure_devops_client.get_threads.return_value = [existing]
+
+        with patch("pr_agent.git_providers.azuredevops_provider.get_settings") as settings:
+            settings.return_value.get.side_effect = lambda key, default=None: (
+                True if key == "config.persistent_inline_comments" else default
+            )
+            settings.return_value.azure_devops.get.return_value = "active"
+            result = provider.publish_code_suggestions([{
+                "body": "**Suggestion:** different wording\n```suggestion\nvalue = 1\n```",
+                "relevant_file": "/src/app.py",
+                "relevant_lines_start": 5,
+                "relevant_lines_end": 5,
+            }])
+
+        assert result is True
+        provider.azure_devops_client.create_thread.assert_not_called()
+
+    def test_persistent_inline_comments_mark_new_suggestion_and_deduplicate_batch(self):
+        provider = _provider_with_diff("/src/app.py")
+        body = "**Suggestion:** use the value\n```suggestion\nvalue = 1\n```"
+        suggestion = {
+            "body": body,
+            "relevant_file": "/src/app.py",
+            "relevant_lines_start": 1,
+            "relevant_lines_end": 1,
+        }
+
+        with patch("pr_agent.git_providers.azuredevops_provider.get_settings") as settings:
+            settings.return_value.get.side_effect = lambda key, default=None: (
+                True if key == "config.persistent_inline_comments" else default
+            )
+            settings.return_value.azure_devops.get.return_value = "active"
+            result = provider.publish_code_suggestions([suggestion, suggestion])
+
+        assert result is True
+        assert provider.azure_devops_client.create_thread.call_count == 1
+        thread = _created_threads(provider)[0]
+        assert "<!-- pr-agent-dedup:" in thread.comments[0].content
+        assert "<!-- pr-agent-dedup-code:" in thread.comments[0].content
+
+    def test_persistent_inline_comments_publish_distinct_issues_on_same_lines(self):
+        provider = _provider_with_diff("/src/app.py")
+        first = _suggestion("/src/app.py")
+        second = _suggestion("/src/app.py")
+        second["body"] = "**Suggestion:** use another rewrite\n```suggestion\nother\n```"
+
+        with patch("pr_agent.git_providers.azuredevops_provider.get_settings") as settings:
+            settings.return_value.get.side_effect = lambda key, default=None: (
+                True if key == "config.persistent_inline_comments" else default
+            )
+            settings.return_value.azure_devops.get.return_value = "active"
+            result = provider.publish_code_suggestions([first, second])
+
+        assert result is True
+        assert provider.azure_devops_client.create_thread.call_count == 2
+
+    def test_persistent_inline_comments_publish_same_issue_at_distinct_ranges(self):
+        provider = _provider_with_diff("/src/app.py")
+        first = _suggestion("/src/app.py")
+        second = dict(first, relevant_lines_start=20, relevant_lines_end=22)
+
+        with patch("pr_agent.git_providers.azuredevops_provider.get_settings") as settings:
+            settings.return_value.get.side_effect = lambda key, default=None: (
+                True if key == "config.persistent_inline_comments" else default
+            )
+            settings.return_value.azure_devops.get.return_value = "active"
+            result = provider.publish_code_suggestions([first, second])
+
+        assert result is True
+        assert provider.azure_devops_client.create_thread.call_count == 2
+
+    def test_persistent_inline_comments_compare_the_complete_issue_body(self):
+        provider = _provider_with_diff("/src/app.py")
+        common_prefix = "**Suggestion:** " + "same context " * 10
+        first = _suggestion("/src/app.py")
+        first["body"] = f"{common_prefix}first issue\n```suggestion\nfirst\n```"
+        second = _suggestion("/src/app.py")
+        second["body"] = f"{common_prefix}second issue\n```suggestion\nsecond\n```"
+
+        with patch("pr_agent.git_providers.azuredevops_provider.get_settings") as settings:
+            settings.return_value.get.side_effect = lambda key, default=None: (
+                True if key == "config.persistent_inline_comments" else default
+            )
+            settings.return_value.azure_devops.get.return_value = "active"
+            result = provider.publish_code_suggestions([first, second])
+
+        assert result is True
+        assert provider.azure_devops_client.create_thread.call_count == 2
+
+    def test_persistent_inline_comments_bootstrap_distinct_range(self):
+        provider = _provider_with_diff("/src/app.py")
+        body = "**Suggestion:** use the value\n```suggestion\nvalue = 1\n```"
+        existing = SimpleNamespace(
+            thread_context=SimpleNamespace(
+                file_path="/src/app.py",
+                right_file_start=SimpleNamespace(line=10),
+                right_file_end=SimpleNamespace(line=12),
+            ),
+            comments=[SimpleNamespace(content=body)],
+        )
+        provider.azure_devops_client.get_threads.return_value = [existing]
+        suggestion = dict(_suggestion("/src/app.py"), relevant_lines_start=20, relevant_lines_end=22)
+
+        with patch("pr_agent.git_providers.azuredevops_provider.get_settings") as settings:
+            settings.return_value.get.side_effect = lambda key, default=None: (
+                True if key == "config.persistent_inline_comments" else default
+            )
+            settings.return_value.azure_devops.get.return_value = "active"
+            result = provider.publish_code_suggestions([suggestion])
+
+        assert result is True
+        provider.azure_devops_client.create_thread.assert_called_once()
+
+    def test_persistent_inline_comments_ignore_suggestion_blocks_in_replies(self):
+        provider = _provider_with_diff("/src/app.py")
+        suggestion = dict(_suggestion("/src/app.py"), relevant_lines_start=1, relevant_lines_end=1)
+        provider.azure_devops_client.get_threads.return_value = [SimpleNamespace(
+            thread_context=SimpleNamespace(
+                file_path="/src/app.py",
+                right_file_start=SimpleNamespace(line=1),
+                right_file_end=SimpleNamespace(line=1),
+            ),
+            comments=[
+                SimpleNamespace(content="Developer discussion"),
+                SimpleNamespace(content=suggestion["body"]),
+            ],
+        )]
+
+        with patch("pr_agent.git_providers.azuredevops_provider.get_settings") as settings:
+            settings.return_value.get.side_effect = lambda key, default=None: (
+                True if key == "config.persistent_inline_comments" else default
+            )
+            settings.return_value.azure_devops.get.return_value = "active"
+            result = provider.publish_code_suggestions([suggestion])
+
+        assert result is True
+        provider.azure_devops_client.create_thread.assert_called_once()
+
+    def test_persistent_inline_comments_mark_pr_level_fallback(self):
+        provider = _provider_with_diff("/src/app.py")
+
+        with (patch("pr_agent.git_providers.azuredevops_provider.get_settings") as settings,
+              patch("pr_agent.algo.utils.get_settings") as heading_settings):
+            settings.return_value.get.side_effect = lambda key, default=None: {
+                "config.persistent_inline_comments": True,
+            }.get(key, default)
+            settings.return_value.azure_devops.get.return_value = "active"
+            heading_settings.return_value.get.return_value = "Team Improvements"
+            result = provider.publish_code_suggestions([_suggestion("/src/removed.py")])
+
+        assert result is True
+        body = _created_threads(provider)[0].comments[0].content
+        assert body.startswith(
+            "## Team Improvements ✨\n\n"
+            f"{PRCodeSuggestionsIdentity.UNANCHORED.value}\n\n"
+        )
+        assert "<!-- pr-agent-dedup:" in body
+        assert "<!-- pr-agent-dedup-code:" in body
+
+    def test_persistent_inline_comments_deduplicate_unresolved_ranges(self):
+        provider = _provider_with_diff("/src/app.py")
+        provider.diff_files[0].head_file = "line 1"
+        suggestion = _suggestion("/src/app.py")
+
+        with patch("pr_agent.git_providers.azuredevops_provider.get_settings") as settings:
+            settings.return_value.get.side_effect = lambda key, default=None: (
+                True if key == "config.persistent_inline_comments" else default
+            )
+            settings.return_value.azure_devops.get.return_value = "active"
+            result = provider.publish_code_suggestions([suggestion, suggestion])
+
+        assert result is True
+        body = _created_threads(provider)[0].comments[0].content
+        assert body.count("could not resolve the complete line range") == 1
+
+    def test_persistent_inline_comments_remember_fallback_in_same_provider(self):
+        provider = _provider_with_diff("/src/app.py")
+        suggestion = _suggestion("/src/removed.py")
+
+        with patch("pr_agent.git_providers.azuredevops_provider.get_settings") as settings:
+            settings.return_value.get.side_effect = lambda key, default=None: (
+                True if key == "config.persistent_inline_comments" else default
+            )
+            settings.return_value.azure_devops.get.return_value = "active"
+            assert provider.publish_code_suggestions([suggestion]) is True
+            assert provider.publish_code_suggestions([suggestion]) is True
+
+        provider.azure_devops_client.create_thread.assert_called_once()
+
+    def test_persistent_inline_comments_bootstrap_pr_level_fallback(self):
+        provider = _provider_with_diff("/src/app.py")
+        existing = MagicMock(thread_context=None)
+        existing.comments = [MagicMock(
+            content="`/src/removed.py` (lines 10-12) - could not be anchored\n\n"
+                    "```suggestion\nfixed\n```"
+        )]
+        provider.azure_devops_client.get_threads.return_value = [existing]
+
+        with patch("pr_agent.git_providers.azuredevops_provider.get_settings") as settings:
+            settings.return_value.get.side_effect = lambda key, default=None: (
+                True if key == "config.persistent_inline_comments" else default
+            )
+            settings.return_value.azure_devops.get.return_value = "active"
+            result = provider.publish_code_suggestions([_suggestion("src/removed.py")])
+
+        assert result is True
+        provider.azure_devops_client.create_thread.assert_not_called()
+
+    def test_persistent_inline_comments_bootstrap_pr_level_fallback_without_a_code_block(self):
+        provider = _provider_with_diff("/src/app.py")
+        body = "**Suggestion:** rename the variable"
+        existing = MagicMock(thread_context=None)
+        existing.comments = [MagicMock(
+            content="## PR Code Suggestions ✨\n\n"
+                    f"{PRCodeSuggestionsIdentity.UNANCHORED.value}\n\n"
+                    f"`/src/removed.py` (lines 10-12) - could not be anchored\n\n{body}"
+        )]
+        provider.azure_devops_client.get_threads.return_value = [existing]
+
+        with patch("pr_agent.git_providers.azuredevops_provider.get_settings") as settings:
+            settings.return_value.get.side_effect = lambda key, default=None: (
+                True if key == "config.persistent_inline_comments" else default
+            )
+            settings.return_value.azure_devops.get.return_value = "active"
+            result = provider.publish_code_suggestions([{
+                "body": body,
+                "relevant_file": "/src/removed.py",
+                "relevant_lines_start": 10,
+                "relevant_lines_end": 12,
+            }])
+
+        assert result is True
+        provider.azure_devops_client.create_thread.assert_not_called()
 
     def test_suggestion_with_matching_path_is_published_unchanged(self):
         provider = _provider_with_diff("/src/Api/Controllers/SomeController.cs")
@@ -399,9 +694,26 @@ class TestAzureDevopsProviderSuggestionAnchoring:
         assert provider.diff_files is None
         assert provider._diff_path_map is None
 
+    def test_full_mode_keeps_the_diff_path_index(self):
+        provider = _provider_with_diff("/src/Api/Controllers/SomeController.cs")
+        diff_files = provider.diff_files
+        path_map = {"somecontroller.cs": "/src/Api/Controllers/SomeController.cs"}
+        provider._diff_path_map = path_map
+        incremental = MagicMock()
+        incremental.is_incremental = False
+
+        provider.get_incremental_commits(incremental)
+
+        assert provider.diff_files is diff_files
+        assert provider._diff_path_map is path_map
+
     def test_set_pr_invalidates_the_diff_path_index(self):
         provider = _provider_with_diff("/src/Api/Controllers/SomeController.cs")
         provider._diff_path_map = {"stale.cs": "/stale.cs"}
+        provider.pr_commits = ["stale"]
+        provider.previous_review = "stale"
+        provider.unreviewed_files_map = {"stale.cs": "stale.cs"}
+        provider.temp_comments = ["stale"]
         provider._parse_pr_url = MagicMock(return_value=("project", "repo", 2))
         provider._get_pr = MagicMock(return_value=MagicMock())
 
@@ -409,6 +721,10 @@ class TestAzureDevopsProviderSuggestionAnchoring:
 
         assert provider.diff_files is None
         assert provider._diff_path_map is None
+        assert provider.pr_commits is None
+        assert provider.previous_review is None
+        assert provider.unreviewed_files_map == {}
+        assert provider.temp_comments == []
 
     def test_unmatched_suggestion_path_does_not_break_markdown(self):
         provider = _provider_with_diff("/src/Api/Controllers/SomeController.cs")
@@ -416,7 +732,11 @@ class TestAzureDevopsProviderSuggestionAnchoring:
         provider.publish_code_suggestions([_suggestion("` /src/Api/Controllers/Removed.cs `")])
 
         body = _created_threads(provider)[-1].comments[0].content
-        assert body.startswith("`/src/Api/Controllers/Removed.cs` (lines 10-12)")
+        assert body.startswith(
+            "## PR Code Suggestions ✨\n\n"
+            f"{PRCodeSuggestionsIdentity.UNANCHORED.value}\n\n"
+        )
+        assert "`/src/Api/Controllers/Removed.cs` (lines 10-12)" in body
 
     def test_aggregate_fallback_retries_suggestions_individually(self):
         provider = _provider_with_diff("/src/Api/Controllers/SomeController.cs")
@@ -629,10 +949,10 @@ class TestAzureDevopsProviderInlineComments:
         provider.diff_files = [FilePatchInfo(base_file="", head_file="", patch="", filename="/app.py")]
         return provider
 
-    def test_get_inline_comment_bodies_only_returns_line_threads(self):
+    def test_get_persistent_comment_bodies_returns_thread_roots(self):
         line_thread = SimpleNamespace(
             thread_context=SimpleNamespace(file_path="/app.py", right_file_start=SimpleNamespace(line=3)),
-            comments=[SimpleNamespace(content="line finding")],
+            comments=[SimpleNamespace(content="line finding"), SimpleNamespace(content="reply")],
         )
         file_thread = SimpleNamespace(
             thread_context=SimpleNamespace(file_path="/app.py", right_file_start=None),
@@ -644,22 +964,14 @@ class TestAzureDevopsProviderInlineComments:
         )
         provider = self._provider([line_thread, file_thread, pr_thread])
 
-        assert provider.get_inline_comment_bodies() == ["line finding"]
+        assert provider.get_persistent_comment_bodies() == ["line finding", "file finding", "PR finding"]
         provider.azure_devops_client.get_threads.assert_called_once_with(
             repository_id="my-repo",
             pull_request_id=42,
             project="my-project",
         )
 
-    def test_get_inline_comment_bodies_supports_serialized_context(self):
-        thread = SimpleNamespace(
-            thread_context={"filePath": "/app.py", "rightFileStart": {"line": 3, "offset": 1}},
-            comments=[SimpleNamespace(content="line finding"), SimpleNamespace(content="")],
-        )
-
-        assert self._provider([thread]).get_inline_comment_bodies() == ["line finding"]
-
-    def test_get_inline_comment_bodies_includes_recent_successful_posts(self):
+    def test_get_persistent_comment_bodies_includes_recent_successful_posts(self):
         provider = self._provider([])
         provider.publish_code_suggestions([{
             "body": "line finding",
@@ -668,7 +980,7 @@ class TestAzureDevopsProviderInlineComments:
             "relevant_lines_end": 3,
         }])
 
-        assert provider.get_inline_comment_bodies() == ["line finding"]
+        assert provider.get_persistent_comment_bodies() == ["line finding"]
 
     def test_set_pr_clears_inline_comment_state(self):
         provider = self._provider([])
@@ -690,3 +1002,388 @@ class TestAzureDevopsProviderInlineComments:
         bodies.append("other finding")
 
         assert provider.get_recent_inline_comment_bodies() == ["line finding"]
+
+
+class TestAzureDevopsProviderSuggestionReconciliation:
+    @pytest.fixture(autouse=True)
+    def _persistent_inline_comments(self):
+        with patch("pr_agent.git_providers.azuredevops_provider.get_settings") as settings:
+            settings.return_value.get.side_effect = lambda key, default=None: (
+                True if key == "config.persistent_inline_comments" else default
+            )
+            yield settings
+
+    @staticmethod
+    def _thread(body, status="active"):
+        return SimpleNamespace(
+            id=17,
+            status=status,
+            thread_context=SimpleNamespace(
+                file_path="/src/app.py",
+                right_file_start=SimpleNamespace(line=2),
+            ),
+            comments=[SimpleNamespace(content=body)],
+        )
+
+    @staticmethod
+    def _marked_body(code="value = 1"):
+        body = f"**Suggestion:** use the value\n```suggestion\n{code}\n```"
+        marker = code_fingerprint("/src/app.py", None, body)
+        return f"{body}\n\n<!-- pr-agent-dedup-code: {marker} -->"
+
+    def _provider(self, thread, content="before\nvalue = 1\nafter"):
+        provider = _provider_with_diff("/src/app.py")
+        provider.pr = SimpleNamespace(last_merge_commit=SimpleNamespace(commit_id="head"))
+        provider.azure_devops_client.get_threads.return_value = [thread]
+        provider.azure_devops_client.get_item.return_value = SimpleNamespace(content=content)
+        return provider
+
+    def test_marks_exact_applied_suggestion_fixed(self):
+        provider = self._provider(self._thread(self._marked_body()))
+
+        assert provider.reconcile_code_suggestion_threads() == 1
+
+        updated = provider.azure_devops_client.update_thread.call_args.args[0]
+        assert updated.status == "fixed"
+
+    def test_marks_closed_suggestion_fixed(self):
+        provider = self._provider(self._thread(self._marked_body(), status="closed"))
+
+        assert provider.reconcile_code_suggestion_threads() == 1
+
+        updated = provider.azure_devops_client.update_thread.call_args.args[0]
+        assert updated.status == "fixed"
+
+    def test_leaves_unapplied_suggestion_active(self):
+        provider = self._provider(self._thread(self._marked_body()), content="before\nvalue = 0\nafter")
+
+        assert provider.reconcile_code_suggestion_threads() == 0
+        provider.azure_devops_client.update_thread.assert_not_called()
+
+    def test_leaves_empty_suggestion_active(self):
+        provider = self._provider(self._thread(self._marked_body("")))
+
+        assert provider.reconcile_code_suggestion_threads() == 0
+        provider.azure_devops_client.update_thread.assert_not_called()
+
+    def test_ignores_malformed_comment_content(self):
+        thread = self._thread(self._marked_body())
+        thread.comments.insert(0, SimpleNamespace(content=123))
+        provider = self._provider(thread)
+
+        assert provider.reconcile_code_suggestion_threads() == 1
+
+    def test_respects_existing_terminal_status(self):
+        provider = self._provider(self._thread(self._marked_body(), status="wontFix"))
+
+        assert provider.reconcile_code_suggestion_threads() == 0
+        provider.azure_devops_client.get_item.assert_not_called()
+        provider.azure_devops_client.update_thread.assert_not_called()
+
+    def test_reconciles_serialized_thread(self):
+        thread = {
+            "id": 18,
+            "status": "active",
+            "threadContext": {
+                "filePath": "/src/app.py",
+                "rightFileStart": {"line": 2},
+            },
+            "comments": [{"content": self._marked_body()}],
+        }
+        provider = self._provider(thread)
+
+        assert provider.reconcile_code_suggestion_threads() == 1
+        assert provider.azure_devops_client.update_thread.call_args.args[3] == 18
+
+    def test_reconciliation_is_gated_by_persistent_inline_comments(self, _persistent_inline_comments):
+        provider = self._provider(self._thread(self._marked_body()))
+        _persistent_inline_comments.return_value.get.side_effect = (
+            lambda key, default=None: default
+        )
+
+        assert provider.reconcile_code_suggestion_threads() == 0
+        provider.azure_devops_client.get_threads.assert_not_called()
+        provider.azure_devops_client.update_thread.assert_not_called()
+
+
+class TestAzureDevopsProviderSuggestionDiscussions:
+    def test_discovers_agent_mention_aliases_from_agent_comments(self):
+        provider = _provider_with_diff("/src/app.py")
+        agent = SimpleNamespace(
+            id="agent-guid",
+            display_name="Build Service (organization)",
+            unique_name="agent@example.com",
+        )
+        provider.azure_devops_client.get_threads.return_value = [SimpleNamespace(comments=[
+            SimpleNamespace(content="## PR Code Suggestions ✨", author=agent),
+            SimpleNamespace(content="A developer reply", author=SimpleNamespace(
+                id="developer-guid",
+                display_name="Developer",
+                unique_name="developer@example.com",
+            )),
+        ])]
+
+        assert provider.get_agent_mention_aliases() == {
+            "agent-guid",
+            "Build Service (organization)",
+            "agent@example.com",
+        }
+
+    def test_discovers_agent_aliases_with_custom_headings(self):
+        provider = _provider_with_diff("/src/app.py")
+        agent = SimpleNamespace(id="agent-guid", display_name="Build Service", unique_name="agent@example.com")
+        provider.azure_devops_client.get_threads.return_value = [SimpleNamespace(comments=[
+            SimpleNamespace(
+                content=(
+                    "## Team Guidelines ✨\n\n"
+                    f"{PRCodeSuggestionsIdentity.SUMMARY.value}\n\n"
+                    "<table>suggestions</table>"
+                ),
+                author=agent,
+            ),
+        ])]
+
+        assert provider.get_agent_mention_aliases() == {
+            "agent-guid",
+            "Build Service",
+            "agent@example.com",
+        }
+
+    def test_uses_configured_agent_mention_aliases(self):
+        provider = _provider_with_diff("/src/app.py")
+        provider.azure_devops_client.get_threads.return_value = [SimpleNamespace(comments=[
+            SimpleNamespace(
+                content="**Suggestion:** human comment",
+                author=SimpleNamespace(
+                    id="human-guid",
+                    display_name="Developer",
+                    unique_name="developer@example.com",
+                ),
+            ),
+        ])]
+
+        with patch("pr_agent.git_providers.azuredevops_provider.get_settings") as settings:
+            settings.return_value.get.return_value = ["agent-guid", "Build Service (organization)"]
+            aliases = provider.get_agent_mention_aliases()
+
+        assert aliases == {"agent-guid", "Build Service (organization)"}
+        provider.azure_devops_client.get_threads.assert_not_called()
+
+    def test_does_not_discover_agent_aliases_from_developer_suggestions(self):
+        provider = _provider_with_diff("/src/app.py")
+        provider.azure_devops_client.get_threads.return_value = [SimpleNamespace(comments=[
+            SimpleNamespace(
+                content="**Suggestion:** human comment",
+                author=SimpleNamespace(
+                    id="human-guid",
+                    display_name="Developer",
+                    unique_name="developer@example.com",
+                ),
+            ),
+        ])]
+
+        with patch("pr_agent.git_providers.azuredevops_provider.get_settings") as settings:
+            settings.return_value.get.return_value = ""
+            aliases = provider.get_agent_mention_aliases()
+
+        assert aliases == set()
+
+    def test_does_not_discover_agent_aliases_from_copied_dedup_markers(self):
+        provider = _provider_with_diff("/src/app.py")
+        provider.azure_devops_client.get_threads.return_value = [SimpleNamespace(comments=[
+            SimpleNamespace(
+                content="Copied suggestion\n\n<!-- pr-agent-dedup: 123456789abc -->",
+                author=SimpleNamespace(id="human-guid", display_name="Developer"),
+            ),
+        ])]
+
+        with patch("pr_agent.git_providers.azuredevops_provider.get_settings") as settings:
+            settings.return_value.get.return_value = ""
+            aliases = provider.get_agent_mention_aliases()
+
+        assert aliases == set()
+
+    def test_formats_replies_from_suggestion_threads(self):
+        provider = _provider_with_diff("/src/app.py")
+        thread = SimpleNamespace(
+            id=21,
+            status="wontFix",
+            thread_context=SimpleNamespace(
+                file_path="/src/app.py",
+                right_file_start=SimpleNamespace(line=4),
+                right_file_end=SimpleNamespace(line=6),
+            ),
+            comments=[
+                SimpleNamespace(content="**Suggestion:** guard the value\n```suggestion\nsafe()\n```"),
+                SimpleNamespace(
+                    content="We will move this to the backlog.",
+                    author=SimpleNamespace(display_name="Alex"),
+                ),
+            ],
+        )
+        provider.azure_devops_client.get_threads.return_value = [thread]
+
+        discussions = json.loads(provider.get_code_suggestion_thread_context())
+
+        assert discussions == [{
+            "thread_id": 21,
+            "status": "wontFix",
+            "file": "/src/app.py",
+            "start_line": 4,
+            "end_line": 6,
+            "suggestion": "**Suggestion:** guard the value\n```suggestion\nsafe()\n```",
+            "replies": [{"author": "Alex", "message": "We will move this to the backlog."}],
+        }]
+
+    def test_includes_suggestion_threads_without_replies(self):
+        provider = _provider_with_diff("/src/app.py")
+        provider.azure_devops_client.get_threads.return_value = [
+            SimpleNamespace(
+                id=22,
+                status="active",
+                thread_context=SimpleNamespace(
+                    file_path="/src/app.py",
+                    right_file_start=SimpleNamespace(line=8),
+                    right_file_end=SimpleNamespace(line=8),
+                ),
+                comments=[SimpleNamespace(content="**Suggestion:** use value\n```suggestion\nvalue\n```")],
+            ),
+            SimpleNamespace(comments=[
+                SimpleNamespace(content="General discussion"),
+                SimpleNamespace(content="A reply"),
+            ]),
+        ]
+
+        assert json.loads(provider.get_code_suggestion_thread_context()) == [{
+            "thread_id": 22,
+            "status": "active",
+            "file": "/src/app.py",
+            "start_line": 8,
+            "end_line": 8,
+            "suggestion": "**Suggestion:** use value\n```suggestion\nvalue\n```",
+            "replies": [],
+        }]
+
+    def test_includes_large_existing_suggestion_history(self):
+        provider = _provider_with_diff("/src/app.py")
+        provider.azure_devops_client.get_threads.return_value = [
+            SimpleNamespace(
+                id=thread_id,
+                status="active",
+                thread_context=SimpleNamespace(
+                    file_path="/src/app.py",
+                    right_file_start=SimpleNamespace(line=thread_id),
+                    right_file_end=SimpleNamespace(line=thread_id),
+                ),
+                comments=[SimpleNamespace(
+                    content=f"**Suggestion:** issue {thread_id}\n```suggestion\nvalue_{thread_id}\n```"
+                )],
+            )
+            for thread_id in range(1, 31)
+        ]
+
+        discussions = json.loads(provider.get_code_suggestion_thread_context())
+
+        assert len(discussions) == 30
+        assert {discussion["thread_id"] for discussion in discussions} == set(range(1, 31))
+
+    def test_adapts_azure_thread_comments_for_conversation_history(self):
+        provider = _provider_with_diff("/src/app.py")
+        provider.azure_devops_client.get_pull_request_thread.return_value = SimpleNamespace(comments=[
+            SimpleNamespace(
+                id=1,
+                content="Original suggestion",
+                author=SimpleNamespace(display_name="PR-Agent"),
+            ),
+            SimpleNamespace(
+                id=2,
+                content="Could this be nullable?\n\n<!-- pr-agent-response -->",
+                author=SimpleNamespace(unique_name="developer@example.com"),
+            ),
+        ])
+
+        comments = provider.get_review_thread_comments(21)
+
+        assert [(comment.id, comment.body, comment.user.login) for comment in comments] == [
+            (1, "Original suggestion", "PR-Agent"),
+            (2, "Could this be nullable?", "developer@example.com"),
+        ]
+
+    def test_bounds_conversation_history(self):
+        provider = _provider_with_diff("/src/app.py")
+        provider.azure_devops_client.get_pull_request_thread.return_value = SimpleNamespace(comments=[
+            SimpleNamespace(
+                id=comment_id,
+                content=f"{comment_id}:" + "x" * 800,
+                author=SimpleNamespace(display_name="Developer"),
+            )
+            for comment_id in range(16)
+        ])
+
+        comments = provider.get_review_thread_comments(21)
+
+        assert [comment.id for comment in comments] == [0, *range(6, 16)]
+        assert all(len(comment.body) == 750 for comment in comments)
+
+    def test_marks_thread_replies_as_agent_generated(self):
+        provider = _provider_with_diff("/src/app.py")
+        provider.azure_devops_client.create_comment.return_value = SimpleNamespace()
+
+        provider.reply_to_thread(21, "Answer")
+
+        comment = provider.azure_devops_client.create_comment.call_args.args[0]
+        assert comment.content == "Answer\n\n<!-- pr-agent-response -->"
+
+    def test_excludes_temporary_progress_reply_from_conversation_history(self):
+        provider = _provider_with_diff("/src/app.py")
+        provider.azure_devops_client.create_comment.return_value = SimpleNamespace()
+        provider.reply_to_thread(21, "On it! ⏳", True)
+        progress_content = provider.azure_devops_client.create_comment.call_args.args[0].content
+
+        provider.azure_devops_client.get_pull_request_thread.return_value = SimpleNamespace(comments=[
+            SimpleNamespace(
+                id=1,
+                content="Why is this nullable?",
+                author=SimpleNamespace(unique_name="developer@example.com"),
+            ),
+            SimpleNamespace(
+                id=2,
+                content=progress_content,
+                author=SimpleNamespace(display_name="PR-Agent"),
+            ),
+        ])
+
+        comments = provider.get_review_thread_comments(21)
+
+        assert [comment.id for comment in comments] == [1]
+
+    def test_excludes_temporary_progress_reply_from_suggestion_discussions(self):
+        provider = _provider_with_diff("/src/app.py")
+        provider.azure_devops_client.create_comment.return_value = SimpleNamespace()
+        provider.reply_to_thread(21, "On it! ⏳", True)
+        progress_content = provider.azure_devops_client.create_comment.call_args.args[0].content
+
+        provider._threads_cache = [SimpleNamespace(
+            id=21,
+            status="active",
+            thread_context=SimpleNamespace(
+                file_path="/src/app.py",
+                right_file_start=SimpleNamespace(line=4),
+                right_file_end=SimpleNamespace(line=4),
+            ),
+            comments=[
+                SimpleNamespace(content="**Suggestion:** fix\n```suggestion\nvalue\n```"),
+                SimpleNamespace(
+                    content=progress_content,
+                    author=SimpleNamespace(display_name="PR-Agent"),
+                ),
+                SimpleNamespace(
+                    content="Rejected, keep as is.",
+                    author=SimpleNamespace(unique_name="developer@example.com"),
+                ),
+            ],
+        )]
+
+        discussions = json.loads(provider.get_code_suggestion_thread_context())
+
+        assert [reply["message"] for reply in discussions[0]["replies"]] == ["Rejected, keep as is."]
