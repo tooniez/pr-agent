@@ -72,9 +72,11 @@ jobs:
             echo "::error::Version is too long for release image tags (maximum 103 characters)."
             exit 1
           fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          {
+            echo "version=$VERSION"
+            echo "tag=$TAG"
+            echo "sha=$GITHUB_SHA"
+          } >> "$GITHUB_OUTPUT"
 
   publish-pypi:
     needs: prepare
