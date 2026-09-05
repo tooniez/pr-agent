@@ -432,6 +432,49 @@ class GithubProvider(GitProvider):
     def supports_review_comment_identity(self) -> bool:
         return True
 
+    def supports_review_finding_state(self) -> bool:
+        deployment_type = getattr(self, "deployment_type", None)
+        if deployment_type is None:
+            deployment_type = get_settings().get("GITHUB.DEPLOYMENT_TYPE", "user")
+        # User deployments resolve the authenticated account through the API.
+        # App deployments require a login grounded in a trusted provider response.
+        if deployment_type == "user":
+            return True
+        if deployment_type == "app":
+            cached_login = getattr(self, "github_user_id", None)
+            return isinstance(cached_login, str) and bool(cached_login.strip())
+        return False
+
+    def is_comment_authored_by_pr_agent(self, comment) -> bool:
+        if isinstance(comment, dict):
+            author = comment.get("user") or comment.get("author")
+        else:
+            author = getattr(comment, "user", None) or getattr(comment, "author", None)
+        if isinstance(author, dict):
+            login = author.get("login")
+        else:
+            login = getattr(author, "login", None)
+        if not isinstance(login, str) or not login.strip():
+            raise RuntimeError("GitHub comment author cannot be verified")
+
+        deployment_type = getattr(self, "deployment_type", None)
+        if deployment_type is None:
+            deployment_type = get_settings().get("GITHUB.DEPLOYMENT_TYPE", "user")
+        if deployment_type not in {"user", "app"}:
+            raise RuntimeError("Unsupported GitHub deployment identity")
+
+        agent_login = getattr(self, "github_user_id", None)
+        if not isinstance(agent_login, str) or not agent_login.strip():
+            if deployment_type == "app":
+                raise RuntimeError("GitHub App identity cannot be verified")
+            try:
+                agent_login = self.get_user_id()
+            except Exception as error:
+                raise RuntimeError("GitHub user identity cannot be verified") from error
+        if not isinstance(agent_login, str) or not agent_login.strip():
+            raise RuntimeError("GitHub user identity cannot be verified")
+        return login.casefold() == agent_login.casefold()
+
     def _publish_check_run(self, text: str, name: str) -> bool:
         if not getattr(self, 'last_commit_id', None):
             get_logger().error("Cannot publish check run without a commit SHA")
@@ -948,6 +991,10 @@ class GithubProvider(GitProvider):
                     artifact={"error": e})
             else:
                 get_logger().exception("Failed to edit github comment", artifact={"error": e})
+            return False
+        except Exception as e:
+            get_logger().exception("Failed to edit github comment", artifact={"error": e})
+            return False
 
     def edit_comment_from_comment_id(self, comment_id: int, body: str):
         try:

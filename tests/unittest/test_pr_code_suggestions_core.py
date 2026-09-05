@@ -1264,8 +1264,9 @@ async def test_publish_no_suggestions_still_overwrites_the_progress_comment_when
 
     await tool.publish_no_suggestions()
 
-    _, kwargs = git_provider.edit_comment.call_args
-    assert "No code suggestions found for the PR." in kwargs["body"]
+    call = git_provider.edit_comment.call_args
+    edited_body = call.kwargs.get("body", call.args[1])
+    assert "No code suggestions found for the PR." in edited_body
     git_provider.remove_comment.assert_not_called()
 
 
@@ -1636,8 +1637,10 @@ async def test_empty_incremental_run_reconciles_existing_suggestions():
 
 def test_azure_persistent_comment_updates_without_history():
     provider = MagicMock(spec=AzureDevopsProvider)
+    provider.supports_code_suggestion_state.return_value = True
+    provider.get_issue_comments_newest_first.return_value = []
     existing = MagicMock()
-    provider.publish_persistent_comment.return_value = existing
+    provider.publish_comment.return_value = existing
 
     result = PRCodeSuggestions.publish_persistent_comment_with_history(
         provider,
@@ -1652,16 +1655,11 @@ def test_azure_persistent_comment_updates_without_history():
     )
 
     assert result is existing
-    provider.publish_persistent_comment.assert_called_once_with(
-        "## PR Code Suggestions ✨\n\nnew suggestions",
-        "## PR Code Suggestions ✨",
-        True,
-        "suggestions",
-        False,
-        identity_marker=PRCodeSuggestionsIdentity.SUMMARY.value,
-        legacy_initial_header=PRCodeSuggestionsHeader.SUMMARY.value,
+    provider.publish_comment.assert_called_once()
+    assert PRCodeSuggestionsIdentity.SUMMARY.value in (
+        provider.publish_comment.call_args.args[0]
     )
-    provider.publish_comment.assert_not_called()
+    provider.publish_persistent_comment.assert_not_called()
 
 
 def test_azure_persistent_comment_without_history_keeps_identity_marker():
@@ -1695,7 +1693,13 @@ def test_azure_persistent_comment_without_history_keeps_identity_marker():
 
 def test_failed_azure_persistent_update_keeps_progress_comment():
     provider = MagicMock(spec=AzureDevopsProvider)
-    provider.publish_persistent_comment.return_value = None
+    provider.supports_code_suggestion_state.return_value = True
+    existing = MagicMock()
+    existing.body = "## PR Code Suggestions ✨\n\nold suggestions"
+    provider.get_issue_comments_newest_first.return_value = [existing]
+    provider.edit_comment.return_value = False
+    fallback = MagicMock()
+    provider.publish_comment.return_value = fallback
     progress = MagicMock()
 
     result = PRCodeSuggestions.publish_persistent_comment_with_history(
@@ -1709,9 +1713,12 @@ def test_failed_azure_persistent_update_keeps_progress_comment():
         progress_response=progress,
     )
 
-    assert result is None
-    provider.edit_comment.assert_not_called()
-    provider.remove_comment.assert_not_called()
+    assert result is fallback
+    assert provider.edit_comment.call_count == 2
+    assert provider.edit_comment.call_args_list[0].args[0] is existing
+    assert provider.edit_comment.call_args_list[1].args[0] is progress
+    provider.publish_comment.assert_called_once()
+    provider.remove_comment.assert_called_once_with(progress)
 
 
 def test_failed_azure_history_update_publishes_current_suggestions():
@@ -1725,6 +1732,9 @@ def test_failed_azure_history_update_publishes_current_suggestions():
     progress = MagicMock()
     fallback = MagicMock()
     provider.get_issue_comments.return_value = [existing]
+    provider.get_issue_comments_newest_first.return_value = [
+        existing
+    ]
     provider.get_comment_url.return_value = "https://example.test/comment/1"
     provider.get_latest_commit_url.return_value = "https://example.test/commit/deadbee"
     provider.edit_comment.side_effect = [False, False]
@@ -1785,6 +1795,7 @@ def test_persistent_update_removes_progress_after_status_edit_failure():
     existing.body = f"{initial_header}\n<!-- aaa1111 -->\n<table>old suggestions</table>"
     provider = MagicMock()
     provider.get_issue_comments.return_value = [existing]
+    provider.get_issue_comments_newest_first.return_value = [existing]
     provider.get_comment_url.return_value = "https://example.test/comment/1"
     provider.get_latest_commit_url.return_value = "https://example.test/commit/deadbee"
     provider.edit_comment.side_effect = [None, RuntimeError("cleanup failed")]
@@ -1804,6 +1815,9 @@ def test_persistent_update_removes_progress_after_status_edit_failure():
 def _persistent_provider(existing_comments):
     provider = MagicMock()
     provider.get_issue_comments.return_value = existing_comments
+    provider.get_issue_comments_newest_first.return_value = list(
+        reversed(existing_comments)
+    )
     provider.get_comment_url.return_value = "https://example.test/comment/1"
     provider.get_latest_commit_url.return_value = "https://example.test/commit/deadbee"
     return provider
@@ -1953,3 +1967,221 @@ def test_custom_heading_is_kept_when_a_history_section_already_exists():
     assert "Suggestions up to commit aaa1111" in updated
     assert "Suggestions up to commit 0000000" in updated
     provider.publish_comment.assert_not_called()
+
+
+@pytest.mark.parametrize("raises", [False, True], ids=["returns-false", "raises"])
+def test_first_persistent_improve_edit_failure_publishes_visible_fallback(raises):
+    provider = MagicMock()
+    provider.get_issue_comments.return_value = []
+    provider.get_latest_commit_url.return_value = "https://example.test/commit/deadbee"
+    progress = MagicMock()
+    fallback = MagicMock()
+    provider.publish_comment.return_value = fallback
+    if raises:
+        provider.edit_comment.side_effect = RuntimeError("edit failed")
+    else:
+        provider.edit_comment.return_value = False
+
+    header = "## PR Code Suggestions " + chr(0x2728)
+    new_comment = (
+        header + "\n\n"
+        + PRCodeSuggestionsIdentity.SUMMARY.value + "\n\n"
+        + "<!-- deadbee -->\n\n<table>new suggestions</table>\n\n"
+    )
+    result = PRCodeSuggestions.publish_persistent_comment_with_history(
+        provider,
+        header + "\n\n<table>new suggestions</table>",
+        header,
+        name="suggestions",
+        final_update_message=False,
+        progress_response=progress,
+        identity_marker=PRCodeSuggestionsIdentity.SUMMARY.value,
+        legacy_initial_header=PRCodeSuggestionsHeader.SUMMARY.value,
+    )
+
+    assert result is fallback
+    provider.edit_comment.assert_called_once_with(progress, new_comment)
+    provider.publish_comment.assert_called_once()
+    provider.remove_comment.assert_called_once_with(progress)
+
+
+class _LifecycleSuggestionProvider:
+    def __init__(self, comments=(), edit_results=(), supports_state=False):
+        self.comments = list(comments)
+        self.edit_results = list(edit_results)
+        self._supports_state = supports_state
+        self.edits = []
+        self.published = []
+        self.removed = []
+
+    def get_issue_comments(self):
+        return list(self.comments)
+
+    def get_issue_comments_newest_first(self):
+        return list(reversed(self.get_issue_comments()))
+
+    def get_latest_commit_url(self):
+        return "https://example.test/commit/deadbee"
+
+    def get_comment_url(self, comment):
+        return f"https://example.test/comment/{comment.name}"
+
+    def edit_comment(self, comment, body):
+        self.edits.append((comment, body))
+        if self.edit_results:
+            result = self.edit_results.pop(0)
+            if isinstance(result, Exception):
+                raise result
+            return result
+        return None
+
+    def publish_comment(self, body, **kwargs):
+        comment = SimpleNamespace(body=body, name=f"published-{len(self.published)}")
+        self.published.append((body, kwargs, comment))
+        return comment
+
+    def remove_comment(self, comment):
+        self.removed.append(comment)
+
+    def supports_code_suggestion_state(self):
+        return self._supports_state
+
+    def should_publish_improve_as_thread(self):
+        return False
+
+    def supports_code_suggestions_artifact(self):
+        return False
+
+    def is_supported(self, capability):
+        return False
+
+    def publish_persistent_comment(
+        self,
+        pr_comment,
+        initial_header,
+        update_header=True,
+        name="review",
+        final_update_message=True,
+        identity_marker=None,
+        legacy_initial_header=None,
+    ):
+        if self.comments:
+            result = self.edit_comment(self.comments[-1], pr_comment)
+            if result is False:
+                return self.publish_comment(
+                    f"{pr_comment}\n\n{identity_marker or ''}".rstrip()
+                )
+            return self.comments[-1]
+        return self.publish_comment(
+            f"{pr_comment}\n\n{identity_marker or ''}".rstrip()
+        )
+
+
+def _lifecycle_suggestion_comment(name):
+    body = (
+        f"{PRCodeSuggestionsHeader.SUMMARY.value}\n\n"
+        f"{PRCodeSuggestionsIdentity.SUMMARY.value}\n\n"
+        f"<!-- {name} -->\n\n<table>{name}</table>"
+    )
+    return SimpleNamespace(body=body, name=name)
+
+
+def test_persistent_improve_uses_newest_matching_comment():
+    old = _lifecycle_suggestion_comment("old")
+    newest = _lifecycle_suggestion_comment("newest")
+    provider = _LifecycleSuggestionProvider([old, newest])
+
+    result = PRCodeSuggestions.publish_persistent_comment_with_history(
+        provider,
+        f"{PRCodeSuggestionsHeader.SUMMARY.value}\n\n<table>new suggestions</table>",
+        PRCodeSuggestionsHeader.SUMMARY.value,
+        name="suggestions",
+        final_update_message=False,
+        identity_marker=PRCodeSuggestionsIdentity.SUMMARY.value,
+        legacy_initial_header=PRCodeSuggestionsHeader.SUMMARY.value,
+    )
+
+    assert result is newest
+    assert provider.edits[0][0] is newest
+    assert provider.published == []
+
+
+def test_persistent_improve_edit_failure_does_not_publish_duplicate_summary():
+    existing = _lifecycle_suggestion_comment("existing")
+    progress = SimpleNamespace(body="Preparing suggestions...", name="progress")
+    provider = _LifecycleSuggestionProvider([existing], edit_results=[False, False])
+
+    result = PRCodeSuggestions.publish_persistent_comment_with_history(
+        provider,
+        f"{PRCodeSuggestionsHeader.SUMMARY.value}\n\n<table>new suggestions</table>",
+        PRCodeSuggestionsHeader.SUMMARY.value,
+        name="suggestions",
+        progress_response=progress,
+        identity_marker=PRCodeSuggestionsIdentity.SUMMARY.value,
+        legacy_initial_header=PRCodeSuggestionsHeader.SUMMARY.value,
+    )
+
+    assert result is provider.published[0][2]
+    assert len(provider.published) == 1
+    failure_body = provider.published[0][0]
+    assert PRCodeSuggestionsIdentity.SUMMARY.value not in failure_body
+    assert "previous suggestions remain unchanged" in failure_body
+    assert provider.removed == [progress]
+
+
+@pytest.mark.asyncio
+async def test_no_suggestions_failure_removes_stale_progress_comment():
+    settings_snapshot = snapshot_settings(
+        (
+            "config.publish_output",
+            "config.publish_output_progress",
+            "pr_code_suggestions.publish_output_no_suggestions",
+        )
+    )
+    try:
+        settings = get_settings()
+        settings.config.publish_output = True
+        settings.config.publish_output_progress = True
+        settings.pr_code_suggestions.publish_output_no_suggestions = True
+
+        provider = _LifecycleSuggestionProvider(
+            edit_results=[False],
+        )
+        progress = SimpleNamespace(body="Preparing suggestions...", name="progress")
+        tool = _make_tool(provider)
+        tool.progress_response = progress
+
+        await tool.publish_no_suggestions()
+
+        assert len(provider.published) == 1
+        assert "No code suggestions found" in provider.published[0][0]
+        assert provider.removed == [progress]
+        assert tool.progress_response is None
+    finally:
+        restore_settings(settings_snapshot)
+
+
+def test_stateful_no_history_edit_failure_has_no_duplicate_authoritative_summary():
+    existing = _lifecycle_suggestion_comment("existing")
+    provider = _LifecycleSuggestionProvider(
+        [existing],
+        edit_results=[False],
+        supports_state=True,
+    )
+
+    result = PRCodeSuggestions.publish_persistent_comment_with_history(
+        provider,
+        f"{PRCodeSuggestionsHeader.SUMMARY.value}\n\n<table>new suggestions</table>",
+        PRCodeSuggestionsHeader.SUMMARY.value,
+        name="suggestions",
+        final_update_message=False,
+        max_previous_comments=0,
+        identity_marker=PRCodeSuggestionsIdentity.SUMMARY.value,
+        legacy_initial_header=PRCodeSuggestionsHeader.SUMMARY.value,
+    )
+
+    assert result is provider.published[0][2]
+    assert len(provider.published) == 1
+    failure_body = provider.published[0][0]
+    assert PRCodeSuggestionsIdentity.SUMMARY.value not in failure_body
+    assert "previous suggestions remain unchanged" in failure_body

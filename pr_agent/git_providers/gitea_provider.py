@@ -321,7 +321,9 @@ class GiteaProvider(GitProvider):
         return self.last_commit.html_url if self.last_commit else ""
 
     def get_comment_url(self, comment) -> str:
-        return comment.html_url
+        if isinstance(comment, dict):
+            return comment.get("html_url") or comment.get("url") or ""
+        return getattr(comment, "html_url", "") or getattr(comment, "url", "")
 
     def publish_persistent_comment(self, pr_comment: str,
                                    initial_header: str,
@@ -331,12 +333,14 @@ class GiteaProvider(GitProvider):
                                    identity_marker: str | None = None,
                                    legacy_initial_header: str | None = None):
         # Keep the legacy updater path until Gitea normalizes its dictionary-shaped comment payloads.
-        self.publish_persistent_comment_full(
+        return self.publish_persistent_comment_full(
             pr_comment,
             initial_header,
             update_header,
             name,
             final_update_message,
+            identity_marker=identity_marker,
+            legacy_initial_header=legacy_initial_header,
         )
 
     def publish_comment(self, comment: str,is_temporary: bool = False) -> None:
@@ -379,19 +383,23 @@ class GiteaProvider(GitProvider):
 
     def edit_comment(self, comment, body : str):
         body = self.limit_output_characters(body, self.max_comment_chars)
+        if isinstance(comment, dict):
+            comment_id = comment.get("comment_id") or comment.get("id")
+        else:
+            comment_id = getattr(comment, "id", None)
         try:
             self.repo_api.edit_comment(
                 owner=self.owner,
                 repo=self.repo,
-                comment_id=comment.get("comment_id") if isinstance(comment, dict) else comment.id,
+                comment_id=comment_id,
                 comment=body
             )
         except ApiException as e:
             self.logger.error(f"Error editing comment: {e}")
-            return None
+            return False
         except Exception as e:
             self.logger.error(f"Unexpected error: {e}")
-            return None
+            return False
 
 
     def publish_inline_comment(self,body: str, relevant_file: str, relevant_line_in_file: str, original_suggestion=None):
@@ -680,9 +688,9 @@ class GiteaProvider(GitProvider):
             repo=self.repo,
             index=index
         )
-        if not comments:
+        if not isinstance(comments, list):
             self.logger.error("Failed to get comments")
-            return []
+            raise RuntimeError("Failed to get comments")
 
         return comments
 

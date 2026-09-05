@@ -6,7 +6,150 @@ from unittest.mock import MagicMock, patch
 import pytest
 from giteapy.rest import ApiException
 
+from pr_agent.git_providers.git_provider import GitProvider
 from pr_agent.git_providers.gitea_provider import GiteaProvider
+
+
+def test_gitea_comment_url_accepts_dict_fields():
+    provider = GiteaProvider.__new__(GiteaProvider)
+
+    html_url_comment = {"html_url": "https://gitea.example/comment/1"}
+    assert provider.get_comment_url(html_url_comment) == (
+        "https://gitea.example/comment/1"
+    )
+    url_comment = {"url": "https://gitea.example/comment/2"}
+    assert provider.get_comment_url(url_comment) == (
+        "https://gitea.example/comment/2"
+    )
+
+
+@pytest.mark.parametrize(
+    ("comment", "expected_id"),
+    [
+        ({"comment_id": 7, "id": 42}, 7),
+        ({"id": 42}, 42),
+    ],
+)
+def test_gitea_edit_comment_accepts_dict_ids(comment, expected_id):
+    provider = GiteaProvider.__new__(GiteaProvider)
+    provider.repo_api = MagicMock()
+    provider.owner = "owner"
+    provider.repo = "repo"
+    provider.max_comment_chars = 1000
+
+    provider.edit_comment(comment, "updated body")
+
+    provider.repo_api.edit_comment.assert_called_once_with(
+        owner="owner",
+        repo="repo",
+        comment_id=expected_id,
+        comment="updated body",
+    )
+
+
+def test_gitea_edit_comment_returns_false_on_failure():
+    provider = GiteaProvider.__new__(GiteaProvider)
+    provider.repo_api = MagicMock()
+    provider.repo_api.edit_comment.side_effect = RuntimeError("edit failed")
+    provider.owner = "owner"
+    provider.repo = "repo"
+    provider.max_comment_chars = 1000
+    provider.logger = MagicMock()
+
+    assert provider.edit_comment({"id": 42}, "updated body") is False
+
+
+def test_gitea_get_issue_comments_returns_empty_list_when_no_comments():
+    provider = GiteaProvider.__new__(GiteaProvider)
+    provider.enabled_issue = False
+    provider.pr_number = 1
+    provider.owner = "owner"
+    provider.repo = "repo"
+    provider.repo_api = MagicMock()
+    provider.repo_api.list_all_comments.return_value = []
+    provider.logger = MagicMock()
+
+    assert provider.get_issue_comments() == []
+
+
+def test_gitea_get_issue_comments_raises_when_api_returns_empty_value():
+    provider = GiteaProvider.__new__(GiteaProvider)
+    provider.enabled_issue = False
+    provider.pr_number = 1
+    provider.owner = "owner"
+    provider.repo = "repo"
+    provider.repo_api = MagicMock()
+    provider.repo_api.list_all_comments.return_value = None
+    provider.logger = MagicMock()
+
+    with pytest.raises(RuntimeError, match="Failed to get comments"):
+        provider.get_issue_comments()
+
+
+def test_gitea_get_issue_comments_raises_when_api_returns_error_payload():
+    provider = GiteaProvider.__new__(GiteaProvider)
+    provider.enabled_issue = False
+    provider.pr_number = 1
+    provider.owner = "owner"
+    provider.repo = "repo"
+    provider.repo_api = MagicMock()
+    provider.repo_api.list_all_comments.return_value = {
+        "error": "unauthorized"
+    }
+    provider.logger = MagicMock()
+
+    with pytest.raises(RuntimeError, match="Failed to get comments"):
+        provider.get_issue_comments()
+
+
+def test_gitea_get_issue_comments_returns_comment_list():
+    provider = GiteaProvider.__new__(GiteaProvider)
+    provider.enabled_issue = False
+    provider.pr_number = 1
+    provider.owner = "owner"
+    provider.repo = "repo"
+    provider.repo_api = MagicMock()
+    comments = [{"body": "comment", "id": 1}]
+    provider.repo_api.list_all_comments.return_value = comments
+    provider.logger = MagicMock()
+
+    assert provider.get_issue_comments() == comments
+
+
+@pytest.mark.parametrize(
+    ("fallback_on_error", "expected", "publishes_fallback"),
+    [(True, "fallback", True), (False, None, False)],
+)
+def test_gitea_edit_failure_respects_persistent_fallback(
+    fallback_on_error, expected, publishes_fallback
+):
+    header = "## PR Reviewer Guide 🔍"
+    provider = GiteaProvider.__new__(GiteaProvider)
+    provider.repo_api = MagicMock()
+    provider.repo_api.edit_comment.side_effect = RuntimeError("edit failed")
+    provider.owner = "owner"
+    provider.repo = "repo"
+    provider.max_comment_chars = 1000
+    provider.logger = MagicMock()
+    provider.get_issue_comments = MagicMock(return_value=[{"body": header, "id": 42}])
+    provider.get_latest_commit_url = MagicMock(return_value="commit-url")
+    provider.get_comment_url = MagicMock(return_value="comment-url")
+    provider.publish_comment = MagicMock(return_value="fallback")
+
+    result = GitProvider.publish_persistent_comment_full(
+        provider,
+        "new review",
+        initial_header=header,
+        update_header=False,
+        final_update_message=False,
+        fallback_on_error=fallback_on_error,
+    )
+
+    assert result == expected
+    if publishes_fallback:
+        provider.publish_comment.assert_called_once_with("new review")
+    else:
+        provider.publish_comment.assert_not_called()
 
 
 class TestGiteaProvider:
@@ -921,6 +1064,46 @@ class TestGiteaProviderInlineCommentStatus:
 
         _, kwargs = client.call_api.call_args
         assert kwargs["body"]["event"] == "COMMENT"
+
+
+def test_gitea_persistent_wrapper_preserves_identity_and_result():
+    published = object()
+
+    class RecordingGiteaProvider:
+        publish_persistent_comment = GiteaProvider.publish_persistent_comment
+
+        def __init__(self):
+            self.calls = []
+
+        def publish_persistent_comment_full(
+            self, pr_comment, initial_header, update_header=True, name="review",
+            final_update_message=True, as_thread=False, identity_marker=None,
+            legacy_initial_header=None, require_agent_authorship=False,
+            fallback_on_error=True,
+        ):
+            self.calls.append((
+                pr_comment, initial_header, update_header, name,
+                final_update_message, as_thread, identity_marker,
+                legacy_initial_header, require_agent_authorship, fallback_on_error,
+            ))
+            return published
+
+    provider = RecordingGiteaProvider()
+    result = provider.publish_persistent_comment(
+        "review body",
+        "initial header",
+        update_header=False,
+        name="review",
+        final_update_message=False,
+        identity_marker="marker",
+        legacy_initial_header="legacy header",
+    )
+
+    assert result is published
+    assert provider.calls == [(
+        "review body", "initial header", False, "review", False,
+        False, "marker", "legacy header", False, True,
+    )]
 
 
 def _page(items):

@@ -58,6 +58,18 @@ def _supports_code_suggestion_state(git_provider) -> bool:
     return callable(supports) and bool(supports())
 
 
+def _edit_comment_safely(git_provider, comment, body: str) -> bool:
+    try:
+        result = git_provider.edit_comment(comment, body)
+    except Exception as error:
+        get_logger().warning(f"Failed to edit code suggestions comment: {error}")
+        return False
+    if result is False:
+        get_logger().warning("Failed to edit code suggestions comment")
+        return False
+    return True
+
+
 class PRCodeSuggestions:
     def __init__(self, pr_url: str, cli_mode=False, args: list = None,
                  ai_handler: partial[BaseAiHandler,] = LiteLLMAIHandler):
@@ -301,7 +313,16 @@ class PRCodeSuggestions:
                             PRCodeSuggestionsIdentity.SUMMARY.value,
                         )
                         if self.progress_response:
-                            self.git_provider.edit_comment(self.progress_response, body=pr_body)
+                            if not _edit_comment_safely(self.git_provider, self.progress_response, pr_body):
+                                self.git_provider.publish_comment(
+                                    pr_body, **self._improve_thread_kwargs()
+                                )
+                                try:
+                                    self.git_provider.remove_comment(self.progress_response)
+                                except Exception as cleanup_error:
+                                    get_logger().warning(
+                                        f"Failed to remove the failed progress comment: {cleanup_error}"
+                                    )
                             self.progress_response = None
                         else:
                             self.git_provider.publish_comment(pr_body, **self._improve_thread_kwargs())
@@ -322,16 +343,11 @@ class PRCodeSuggestions:
                 return
         except asyncio.CancelledError:
             if self.progress_response is not None:
-                try:
-                    self.git_provider.edit_comment(
-                        self.progress_response,
-                        "Code suggestions generation cancelled.",
-                    )
-                except Exception as cleanup_error:
-                    get_logger().exception(
-                        f"Failed to update code suggestions progress comment after cancellation, "
-                        f"error: {cleanup_error}"
-                    )
+                _edit_comment_safely(
+                    self.git_provider,
+                    self.progress_response,
+                    "Code suggestions generation cancelled.",
+                )
                 try:
                     self.git_provider.remove_comment(self.progress_response)
                 except Exception as cleanup_error:
@@ -403,11 +419,27 @@ class PRCodeSuggestions:
                 pr_body += show_run_details(self.git_provider.is_supported("gfm_markdown"))
             get_logger().debug("PR output", artifact=pr_body)
             if self.progress_response:
-                self.git_provider.edit_comment(self.progress_response, body=pr_body)
-                if self._improve_thread_kwargs():
-                    # A mere status message isn't actionable; resolve the thread instead of
-                    # leaving it open for the user to close manually.
-                    self.git_provider.resolve_comment_thread(self.progress_response.id)
+                progress_response = self.progress_response
+                if _edit_comment_safely(self.git_provider, progress_response, pr_body):
+                    if self._improve_thread_kwargs():
+                        # A mere status message isn't actionable; resolve the thread instead of
+                        # leaving it open for the user to close manually.
+                        self.git_provider.resolve_comment_thread(progress_response.id)
+                else:
+                    try:
+                        comment = self.git_provider.publish_comment(
+                            pr_body, **self._improve_thread_kwargs()
+                        )
+                        if comment and self._improve_thread_kwargs():
+                            self.git_provider.resolve_comment_thread(comment.id)
+                    finally:
+                        try:
+                            self.git_provider.remove_comment(progress_response)
+                        except Exception as cleanup_error:
+                            get_logger().warning(
+                                f"Failed to remove the failed progress comment: {cleanup_error}"
+                            )
+                        self.progress_response = None
             else:
                 comment = self.git_provider.publish_comment(pr_body, **self._improve_thread_kwargs())
                 if comment and self._improve_thread_kwargs():
@@ -454,22 +486,16 @@ class PRCodeSuggestions:
                                                 legacy_initial_header: str | None = None,
                                                 as_thread: bool = False):
         def _edit_comment(comment, body: str):
-            result = git_provider.edit_comment(comment, body)
-            if result is False:
+            if not _edit_comment_safely(git_provider, comment, body):
                 raise RuntimeError("Failed to edit code suggestions comment")
-            return result
+            return True
 
         def _clean_up_progress_note(
             message: str = "Code suggestions published in the persistent thread above.",
         ) -> bool:
             if not progress_response:
                 return True
-            try:
-                _edit_comment(progress_response, message)
-            except Exception as edit_error:
-                get_logger().warning(
-                    f"Failed to update progress note before cleanup: {edit_error}"
-                )
+            _edit_comment_safely(git_provider, progress_response, message)
             try:
                 git_provider.remove_comment(progress_response)
             except Exception as remove_error:
@@ -477,23 +503,54 @@ class PRCodeSuggestions:
                 return False
             return True
 
+        def _publish_persistent_update_failure():
+            _clean_up_progress_note()
+            failure_body = (
+                f"⚠️ Failed to update the persistent {name} comment; "
+                f"the previous {name} remain unchanged."
+            )
+            try:
+                return git_provider.publish_comment(
+                    failure_body,
+                    **({"as_thread": True} if as_thread else {}),
+                )
+            except Exception as error:
+                get_logger().exception(
+                    f"Failed to publish persistent update failure, error: {error}"
+                )
+                return None
+
+        def _update_existing_comment(comment, body: str):
+            try:
+                _edit_comment(comment, body)
+            except Exception as error:
+                get_logger().exception(
+                    f"Failed to update persistent {name} comment, error: {error}"
+                )
+                return _publish_persistent_update_failure()
+            return comment
+
         if hasattr(git_provider, '_publish_check_run') and get_settings().github.publish_as_check_run:
             if git_provider._publish_check_run(pr_comment, name):
                 return progress_response if _clean_up_progress_note() else None
 
         if _supports_code_suggestion_state(git_provider) and max_previous_comments <= 0:
-            result = git_provider.publish_persistent_comment(
+            result = GitProvider.publish_persistent_comment_full(
+                git_provider,
                 pr_comment,
                 initial_header,
                 update_header,
                 name,
                 final_update_message,
+                as_thread=as_thread,
                 identity_marker=identity_marker,
                 legacy_initial_header=legacy_initial_header,
+                fallback_on_error=False,
             )
             if result is not None:
                 _clean_up_progress_note("Code suggestions updated in the persistent thread above.")
-            return result
+                return result
+            return _publish_persistent_update_failure()
 
         def _extract_link(comment_text: str):
             match = re.search(r"<!--\s*([0-9a-fA-F]{7,40})\s*-->", comment_text)
@@ -544,7 +601,7 @@ class PRCodeSuggestions:
 
         if max_previous_comments > 0:
             try:
-                prev_comments = list(git_provider.get_issue_comments())
+                prev_comments = list(git_provider.get_issue_comments_newest_first())
                 if identity_marker:
                     comment = next(
                         (
@@ -585,7 +642,9 @@ class PRCodeSuggestions:
                                 f"{initial_header}\n\n{latest_commit_html_comment}\n\n"
                                 f"{new_suggestion_table}\n\n"
                             )
-                            _edit_comment(comment, pr_comment_updated)
+                            updated_comment = _update_existing_comment(comment, pr_comment_updated)
+                            if updated_comment is not comment:
+                                return updated_comment
                             _clean_up_progress_note()
                             return comment
                         # find http link from comment.body[:table_index]
@@ -639,7 +698,9 @@ class PRCodeSuggestions:
                         )
 
                     get_logger().info(f"Persistent mode - updating comment {comment_url} to latest {name} message")
-                    _edit_comment(comment, pr_comment_updated)
+                    updated_comment = _update_existing_comment(comment, pr_comment_updated)
+                    if updated_comment is not comment:
+                        return updated_comment
                     _clean_up_progress_note()
                     return comment
             except Exception as e:
@@ -652,7 +713,7 @@ class PRCodeSuggestions:
             f"{new_suggestion_table}\n\n"
         )
         if progress_response:
-            if git_provider.edit_comment(progress_response, pr_comment) is False:
+            if not _edit_comment_safely(git_provider, progress_response, pr_comment):
                 new_comment = git_provider.publish_comment(
                     pr_comment,
                     **({"as_thread": True} if as_thread else {}),
@@ -944,7 +1005,8 @@ class PRCodeSuggestions:
                                       if empty_coverage_footer else "No suggestions found to improve this PR.")
             pr_body = no_suggestions_message + empty_coverage_footer
             if self.progress_response:
-                self.git_provider.edit_comment(self.progress_response, body=pr_body)
+                if not _edit_comment_safely(self.git_provider, self.progress_response, pr_body):
+                    self.git_provider.publish_comment(pr_body)
             else:
                 self.git_provider.publish_comment(pr_body)
             return
