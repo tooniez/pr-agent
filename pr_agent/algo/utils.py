@@ -1015,7 +1015,9 @@ def load_yaml(response_text: str, keys_fix_yaml: List[str] = [], first_key="", l
     unfenced = re.sub(r'^```[ \t]*(?:(?i:yaml|yml))?[ \t]*(?=\r?\n)', '', response_text)
     if unfenced == response_text:
         unfenced = response_text.removeprefix('yaml')
-    response_text = unfenced.rstrip().removesuffix('```')
+    response_text = unfenced.rstrip()
+    if response_text.split('\n')[-1] == '```':
+        response_text = response_text.removesuffix('```')
     response_text = sanitize_yaml_control_chars(response_text)
     response_text_original_sanitized = sanitize_yaml_control_chars(response_text_original, log=False)
     try:
