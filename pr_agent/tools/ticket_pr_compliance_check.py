@@ -19,6 +19,10 @@ GITHUB_TICKET_PATTERN = re.compile(
 )
 # Option A: issue number at start of branch or after /, followed by - or end (e.g. feature/1-test-issue, 123-fix)
 BRANCH_ISSUE_PATTERN = re.compile(r"(?:^|/)(\d{1,6})(?=-|$)")
+# A bare "#12345" is as likely to be an error code as an issue, so a shorthand reference is
+# only followed up to this many digits. The bound matches BRANCH_ISSUE_PATTERN above: the same
+# number written in a branch name and in the description should resolve the same way.
+MAX_SHORTHAND_ISSUE_DIGITS = 6
 
 
 def find_jira_tickets(text):
@@ -336,7 +340,8 @@ def extract_ticket_links_from_pr_description(pr_description, repo_path, base_url
                 _add(f"{base_url_html.strip('/')}/{owner}/{repo}/issues/{issue_number}")
             else:  # #123 format
                 issue_number = match[5][1:]  # remove #
-                if issue_number.isdigit() and len(issue_number) < 5 and repo_path:
+                if (issue_number.isdigit() and repo_path
+                        and len(issue_number) <= MAX_SHORTHAND_ISSUE_DIGITS):
                     _add(f"{base_url_html.strip('/')}/{repo_path}/issues/{issue_number}")
 
         if len(github_tickets) > MAX_GITHUB_TICKETS:
