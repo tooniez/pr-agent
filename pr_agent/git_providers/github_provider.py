@@ -110,8 +110,9 @@ class GithubProvider(GitProvider):
             get_logger().exception(f"Failed to get an issue object for issue: {issue_url}, belonging to owner/repo: {repo_name}")
             return None
 
-    def get_incremental_commits(self, incremental=IncrementalPR(False)):
-        self.incremental = incremental
+    def get_incremental_commits(self, incremental: Optional[IncrementalPR] = None):
+        # Constructed per call: a default in the signature is one object shared by every provider that omits it.
+        self.incremental = incremental if incremental is not None else IncrementalPR(False)
         if self.incremental.is_incremental:
             self.unreviewed_files_map = dict()
             self._get_incremental_commits()
