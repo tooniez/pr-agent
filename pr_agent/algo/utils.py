@@ -983,6 +983,54 @@ def sanitize_yaml_control_chars(text: str, log: bool = True) -> str:
     return sanitized
 
 
+def _looks_like_more_answer(tail: str) -> bool:
+    """Whether the text after the fence is more of the answer rather than a sign-off.
+
+    Two signals, because each alone has a blind spot: a tail that parses as a mapping or a
+    list is structured, but one that continues into prose does not parse at all and is
+    only recognisable from the shape of its first line.
+    """
+    first_line = next((line for line in tail.split('\n') if line.strip()), '')
+    if re.match(r'^[A-Za-z_][A-Za-z0-9_]*:(\s|$)', first_line):
+        return True
+    try:
+        return isinstance(yaml.safe_load(tail), (dict, list))
+    except Exception:
+        return False
+
+
+def drop_sign_off_after_wrapper_fence(text: str) -> str:
+    """Drop a closing remark the model added after the wrapper's closing fence.
+
+    The prompts ask for YAML "and nothing else", but the model sometimes signs off
+    anyway. That either leaves the document unparseable or, for a single block
+    scalar, parses the fence and the remark into the value.
+
+    No existing fallback recovers it. The one that extracts a fenced block needs
+    both fences, but most prompts end with an open fence for the model to continue
+    from, so the reply carries only the closing one.
+    """
+    lines = text.split('\n')
+    for i in range(len(lines) - 1, -1, -1):
+        if lines[i].rstrip() != '```':
+            continue
+        tail = '\n'.join(lines[i + 1:])
+        if not tail.strip():
+            return text
+        if _looks_like_more_answer(tail):
+            # Dropping it would publish a partial answer, where the parse failure it
+            # replaces at least triggers a retry.
+            return text
+        candidate = '\n'.join(lines[:i])
+        try:
+            if isinstance(yaml.safe_load(candidate), dict):
+                return candidate
+        except Exception:
+            pass
+        return text
+    return text
+
+
 def load_yaml(response_text: str, keys_fix_yaml: List[str] | None = None, first_key="", last_key="") -> dict:
     if keys_fix_yaml is None:
         keys_fix_yaml = []
@@ -994,6 +1042,7 @@ def load_yaml(response_text: str, keys_fix_yaml: List[str] | None = None, first_
     if unfenced == response_text:
         unfenced = response_text.removeprefix('yaml')
     response_text = unfenced.rstrip()
+    response_text = drop_sign_off_after_wrapper_fence(response_text)
     if response_text.split('\n')[-1] == '```':
         response_text = response_text.removesuffix('```')
     response_text = sanitize_yaml_control_chars(response_text)
