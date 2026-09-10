@@ -215,6 +215,15 @@ class GitProvider(ABC):
         inline override this; the default falls back to `<br>`-separated bullets."""
         return False
 
+    def supports_changelog_update_review(self) -> bool:
+        """Whether a pushed CHANGELOG.md commit can be annotated with a PR review.
+
+        `/update_changelog --push_changelog_changes=true` posts its summary as a review on the
+        commit it just pushed. Providers exposing a commit-scoped review API override this;
+        the default is no support, so the review is simply skipped.
+        """
+        return False
+
     def supports_markdown_tables(self) -> bool:
         """Whether comments render pipe-table markdown.
 
