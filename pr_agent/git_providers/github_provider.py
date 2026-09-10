@@ -141,6 +141,9 @@ class GithubProvider(GitProvider):
     def supports_changelog_update_review(self) -> bool:
         return True
 
+    def supports_issue_url_tickets(self) -> bool:
+        return True
+
     def _get_owner_and_repo_path(self, given_url: str) -> str:
         try:
             repo_path = None
