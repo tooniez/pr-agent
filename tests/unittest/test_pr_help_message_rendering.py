@@ -14,6 +14,8 @@ from tests.unittest._settings_helpers import restore_settings, snapshot_settings
 INTERACTIVE_MARKER = "Trigger Interactively"
 PLAIN_TABLE_MARKER = "| Tool  | Description |"
 UNSUPPORTED_MARKER = "requires gfm markdown"
+CURRENT_DOCS_URL = "https://docs.pr-agent.ai"
+RETIRED_DOCS_HOSTS = ("qodo-merge-docs.qodo.ai", "pr-agent-docs.codium.ai")
 
 
 class StubProvider:
@@ -172,6 +174,30 @@ async def test_checkboxes_stay_disabled_by_configuration(published_output):
     comment = await run_walkthrough(StubProvider(gfm_markdown=True, checkbox_commands=True))
     assert INTERACTIVE_MARKER not in comment
     assert "<table>" in comment
+
+
+@pytest.mark.parametrize("checkbox_commands", [False, True], ids=["without-checkboxes", "with-checkboxes"])
+async def test_walkthrough_uses_current_documentation_site(published_output, checkbox_commands):
+    comment = await run_walkthrough(StubProvider(gfm_markdown=True, checkbox_commands=checkbox_commands))
+
+    assert (INTERACTIVE_MARKER in comment) is checkbox_commands
+    assert f"{CURRENT_DOCS_URL}/tools/review/" in comment
+    assert f"{CURRENT_DOCS_URL}/usage-guide/automations_and_usage/" in comment
+    assert not any(host in comment for host in RETIRED_DOCS_HOSTS)
+
+
+@pytest.mark.parametrize(
+    ("file_name", "header", "expected"),
+    [
+        ("/index.md", "", f"{CURRENT_DOCS_URL}/"),
+        ("/tools/review.md", "Automatic review", f"{CURRENT_DOCS_URL}/tools/review/#automatic-review"),
+        ("/faq/index.md", "Frequently asked questions", f"{CURRENT_DOCS_URL}/faq/#frequently-asked-questions"),
+    ],
+)
+def test_question_source_urls_use_canonical_documentation_paths(file_name, header, expected):
+    tool = PRHelpMessage.__new__(PRHelpMessage)
+
+    assert tool.format_docs_url(file_name, header) == expected
 
 
 @pytest.mark.parametrize(
