@@ -143,6 +143,11 @@ class _GitLabIncrementalNote:
         self.anchor_time = max(candidates) if candidates else None
         self.html_url = f"{mr_web_url}#note_{self.id}" if mr_web_url else ""
 
+# GitLab project access levels: No access = 0, Minimal Access = 5, Guest = 10,
+# Reporter = 20, Developer = 30, Maintainer = 40, Owner = 50. Reading a private or
+# internal project's repository source requires at least Reporter-level access.
+_GITLAB_ACCESS_LEVEL_REPORTER = 20
+
 class GitLabProvider(GitProvider):
 
     def __init__(self, merge_request_url: Optional[str] = None, incremental: Optional[bool] = False):
@@ -1399,18 +1404,20 @@ class GitLabProvider(GitProvider):
     def get_pr_branch(self):
         return self.mr.source_branch
 
-    def get_owning_namespace(self) -> str | None:
+    def get_owning_namespace(self, *, resolved: bool = False) -> str | None:
         # The top-level group of the project's path_with_namespace works on any host
-        # (gitlab.com or self-hosted) with no extra round trip: numeric project IDs are
-        # resolved to their canonical path first so the group name is still available.
+        # (gitlab.com or self-hosted). Resolve numeric IDs, and all identifiers when
+        # checking sibling access, to the canonical path before comparing groups.
         if not getattr(self, "gl", None) or not getattr(self, "id_project", None):
             return None
         project_id = str(self.id_project)
-        if project_id.isascii() and project_id.isdigit():
+        if resolved or (project_id.isascii() and project_id.isdigit()):
             try:
                 project_path = self.gl.projects.get(project_id).path_with_namespace
             except Exception as e:
                 get_logger().warning(f"Failed to resolve canonical GitLab project path, error: {e}")
+                if resolved:
+                    raise
                 return None
             if not project_path:
                 return None
@@ -1529,6 +1536,92 @@ class GitLabProvider(GitProvider):
             if getattr(e, "response_code", None) == 404:
                 return ""
             raise
+
+    def get_sibling_repo_file_content(self, repo_id: str, file_path: str, from_default_branch: bool = False):
+        try:
+            repo_id = (repo_id or "").strip().strip("/")
+            file_path = (file_path or "").strip().lstrip("/")
+            if not repo_id or not file_path:
+                return ""
+            if not self.is_sibling_repo_allowed(repo_id):
+                get_logger().warning(f"Ignoring sibling repo absent from the host allowlist: {repo_id}")
+                return ""
+            project = self.gl.projects.get(repo_id)
+            resolved_path = project.path_with_namespace
+            current_namespace = self.get_owning_namespace(resolved=True)
+            numeric_id = repo_id.isascii() and repo_id.isdigit()
+            identity_matches = str(project.id) == repo_id if numeric_id else resolved_path == repo_id
+            if (not isinstance(resolved_path, str) or "/" not in resolved_path or not identity_matches
+                    or not current_namespace or resolved_path.split("/")[0] != current_namespace):
+                get_logger().warning(f"Ignoring out-of-namespace sibling repo in repo context: {repo_id}")
+                return ""
+            if not self._requester_can_read_sibling_project(project):
+                get_logger().warning(
+                    f"Ignoring sibling repo context file the review requester cannot read: {repo_id}"
+                )
+                return ""
+            contents = project.files.get(file_path=file_path, ref=project.default_branch).decode()
+            return decode_if_bytes(contents)
+        except GitlabGetError as e:
+            # A missing optional file is expected, but transient/provider failures must reach
+            # repo_context so the failed result is not cached as a successful empty context.
+            if getattr(e, "response_code", None) == 404:
+                return ""
+            raise
+
+    def _get_review_requester_id(self) -> Optional[int]:
+        # Prefer the authenticated command actor when one is known: comment commands can pass
+        # arbitrary arguments, so sibling context must be authorized against whoever actually
+        # issued the command, not the MR author. Fall back to the MR author only when no actor
+        # is recorded (CLI runs), and fail closed without either identity.
+        requester_id = getattr(self, "_command_actor", None)
+        if requester_id:
+            return requester_id
+        mr = getattr(self, "mr", None)
+        author = getattr(mr, "author", None) if mr is not None else None
+        if isinstance(author, dict):
+            return author.get("id")
+        if author is not None:
+            return getattr(author, "id", None)
+        return None
+
+    def _requester_can_read_sibling_project(self, project) -> bool:
+        # Public projects are readable by any instance user, including external users.
+        visibility = getattr(project, "visibility", None)
+        if visibility == "public":
+            return True
+        requester_id = self._get_review_requester_id()
+        if not requester_id:
+            return False
+        if visibility == "internal":
+            # Internal projects are visible to every signed-in instance user who is not an
+            # external user; membership is not required. Only a positive "external" verdict
+            # rejects here; an unknown flag falls through to the membership check and fails
+            # closed, since external users cannot be granted internal access as members either.
+            try:
+                user = self.gl.users.get(requester_id)
+            except GitlabGetError as e:
+                # A definitive 404 (no such user) means denial; provider/network failures are
+                # not a verdict and must surface as a fetch error instead of a silent skip.
+                if getattr(e, "response_code", None) == 404:
+                    return False
+                raise
+            if getattr(user, "external", None) is False:
+                return True
+        try:
+            member = project.members_all.get(requester_id)
+        except GitlabGetError as e:
+            # A definitive 404 (not a member) means denial; auth/provider failures are not a
+            # verdict and must surface as a fetch error instead of silently dropping the file.
+            if getattr(e, "response_code", None) == 404:
+                return False
+            raise
+        access_level = getattr(member, "access_level", None)
+        # Reading repository source code requires at least Reporter-level access; Guests,
+        # minimal-access members, and unknown levels are rejected. Requiring positive membership
+        # with that level also fails closed for external users, whom GitLab forbids from
+        # internal projects, and for low-access members of private projects.
+        return isinstance(access_level, int) and access_level >= _GITLAB_ACCESS_LEVEL_REPORTER
 
     def get_repo_context_ref(self, from_default_branch: bool = False) -> Optional[str]:
         # The MR target branch (the branch being merged into) is the cached revision; the

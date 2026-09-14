@@ -546,6 +546,40 @@ class GitProvider(ABC):
     def get_repo_file_content(self, file_path: str, from_default_branch: bool = False):
         return ""
 
+    def get_sibling_repo_file_content(self, repo_id: str, file_path: str, from_default_branch: bool = False):
+        """Fetch a single file from a sibling repository in the same namespace/owner.
+
+        Used by repo context when a repo_context_files entry is a
+        sibling dict ``{"repo_id": ..., "file_path": ...}``. Only providers that can resolve
+        the sibling through their own authenticated API (GitHub, GitLab) override this; both
+        require host allowlisting, check the resolved owner/group, and read from the
+        sibling's default branch. The default returns "" so unsupported providers degrade
+        gracefully without reaching an unrelated repository or host.
+        """
+        return ""
+
+    def is_sibling_repo_allowed(self, repo_id: str, *, case_sensitive: bool = True) -> bool:
+        """Require explicit host approval before resolving a sibling repository."""
+        allowed = get_settings().config.get("repo_context_sibling_repos", [])
+        if not isinstance(allowed, list):
+            return False
+        normalize = (lambda value: value) if case_sensitive else str.casefold
+        return normalize(repo_id) in {
+            normalize(value.strip().strip("/")) for value in allowed if isinstance(value, str) and value.strip()
+        }
+
+    def set_command_actor(self, actor) -> None:
+        """Record the authenticated user who triggered the current command.
+
+        Comment commands can pass arbitrary arguments, so sibling-repo context must be
+        authorized against the actor who issued the command rather than the PR/MR author:
+        a commenter may not have the read access the author has. Providers that resolve
+        siblings through their own authenticated API use this identity (when set) instead
+        of the PR/MR author. When no trustworthy actor is available the providers fail
+        closed for non-public siblings.
+        """
+        self._command_actor = actor
+
     def get_repo_context_ref(self, from_default_branch: bool = False) -> Optional[str]:
         """Return the ref (commit SHA or branch name) that repo-context files are read from.
 
