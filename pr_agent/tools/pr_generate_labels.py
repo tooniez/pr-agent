@@ -129,7 +129,14 @@ class PRGenerateLabels:
         self.data = None
 
         get_logger().info(f"Getting PR diff {self.pr_id}")
-        self.patches_diff = get_pr_diff(self.git_provider, self.token_handler, model)
+        self.patches_diff = get_pr_diff(
+            self.git_provider,
+            self.token_handler,
+            model,
+            output_token_reserve=getattr(
+                getattr(self, "ai_handler", None), "get_output_token_reserve", None
+            ),
+        )
         get_logger().info(f"Getting AI prediction {self.pr_id}")
         prediction = await self._get_prediction(model)
         data = self._load_valid_labels_yaml(prediction)
