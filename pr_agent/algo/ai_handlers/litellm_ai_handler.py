@@ -3664,6 +3664,47 @@ class LiteLLMAIHandler(BaseAiHandler):
             system_prompt = "No system prompt provided"
         return system_prompt, user_prompt
 
+    def build_request_messages(
+        self,
+        model: str,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        image_path: str | None = None,
+    ) -> list[dict]:
+        """Build the exact message payload for normalized prompt strings."""
+        combine_prompts = (
+            self._uses_user_message_only(model)
+            or get_settings().config.custom_reasoning_model
+        )
+        if combine_prompts:
+            user_prompt = f"{system_prompt}\n\n\n{user_prompt}"
+            content = user_prompt
+            if image_path:
+                content = [
+                    {"type": "text", "text": user_prompt},
+                    {"type": "image_url", "image_url": {"url": image_path}},
+                ]
+            return [{"role": "user", "content": content}]
+
+        user_content = user_prompt
+        if image_path:
+            user_content = [
+                {"type": "text", "text": user_prompt},
+                {"type": "image_url", "image_url": {"url": image_path}},
+            ]
+        return [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ]
+
+    def _uses_user_message_only(self, model: str) -> bool:
+        """Recognize user-only models through any routed provider prefix."""
+        return any(
+            model == registered_model or model.endswith(f"/{registered_model}")
+            for registered_model in self.user_message_only_models
+        )
+
     def _configure_claude_extended_thinking(self, model: str, kwargs: dict) -> dict:
         """
         Configure Claude extended thinking parameters if applicable.
@@ -3948,11 +3989,12 @@ class LiteLLMAIHandler(BaseAiHandler):
                     get_logger().warning(
                         "Empty system prompt for claude model. Adding a newline character to prevent OpenAI API error.")
                 system = normalized_system
-                messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
-
-                if img_path:
-                    messages[1]["content"] = [{"type": "text", "text": messages[1]["content"]},
-                                              {"type": "image_url", "image_url": {"url": img_path}}]
+                messages = self.build_request_messages(
+                    model,
+                    system,
+                    user,
+                    image_path=img_path,
+                )
 
                 thinking_kwargs_gpt5 = None
                 openrouter_reasoning_effort = None
@@ -4002,16 +4044,10 @@ class LiteLLMAIHandler(BaseAiHandler):
                     model_family = "GPT-6 Astra" if is_gpt6_astra else "GPT-5"
                     get_logger().info(f"Using reasoning_effort='{effort}' for {model_family} model")
                 # Currently, some models do not support a separate system and user prompts
-                if model in self.user_message_only_models or get_settings().config.custom_reasoning_model:
+                if self._uses_user_message_only(model) or get_settings().config.custom_reasoning_model:
                     user = f"{system}\n\n\n{user}"
                     system = ""
                     get_logger().info(f"Using model {model}, combining system and user prompts")
-                    if img_path:
-                        content = [{"type": "text", "text": user},
-                                   {"type": "image_url", "image_url": {"url": img_path}}]
-                    else:
-                        content = user
-                    messages = [{"role": "user", "content": content}]
 
                 # Build request kwargs after normalizing the model and messages so credentials and
                 # endpoints can be selected for the provider that will actually receive this call.
