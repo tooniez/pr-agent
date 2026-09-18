@@ -44,6 +44,7 @@ from .git_provider import (
     FilePatchInfo,
     GitProvider,
     IncrementalPR,
+    get_config_branch,
     redact_credentials,
 )
 
@@ -1223,12 +1224,7 @@ class GithubProvider(GitProvider):
         if global_settings:
             settings_files.append(("global", global_settings))
 
-        # Normalize each candidate before applying precedence so a whitespace-only
-        # settings value doesn't short-circuit the PR_AGENT_CONFIG_BRANCH fallback.
-        settings_branch = get_settings().get("CONFIG.CONFIG_BRANCH", None)
-        settings_branch = settings_branch.strip() if isinstance(settings_branch, str) else ""
-        env_branch = (os.environ.get("PR_AGENT_CONFIG_BRANCH") or "").strip()
-        config_branch = settings_branch or env_branch
+        config_branch = get_config_branch()
         if config_branch:
             # Only treat a missing branch/file (GithubException) as an expected
             # reason to fall back to the default branch. Unexpected errors are

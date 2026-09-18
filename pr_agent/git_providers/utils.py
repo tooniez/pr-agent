@@ -23,6 +23,7 @@ from pr_agent.config_security import (
 )
 from pr_agent.custom_merge_loader import MAX_TOML_SIZE_IN_BYTES, validate_file_security
 from pr_agent.git_providers import get_git_provider_with_context
+from pr_agent.git_providers.git_provider import get_config_branch
 from pr_agent.log import get_logger
 
 _MAX_EXTRA_CONFIG_BYTES = 1 * 1024 * 1024  # 1 MB cap for a remote .toml
@@ -527,18 +528,6 @@ def _normalize_repo_settings(repo_settings):
     return repo_settings
 
 
-def _get_config_branch() -> str:
-    """Resolve the branch repo configuration is read from.
-
-    Mirrors the per-provider resolution (CONFIG.CONFIG_BRANCH / PR_AGENT_CONFIG_BRANCH);
-    returns "" when unset, meaning the provider reads from its own default branch.
-    """
-    settings_branch = get_settings().get("CONFIG.CONFIG_BRANCH", None)
-    settings_branch = settings_branch.strip() if isinstance(settings_branch, str) else ""
-    env_branch = (os.environ.get("PR_AGENT_CONFIG_BRANCH") or "").strip()
-    return settings_branch or env_branch
-
-
 def _get_changed_file_paths(git_provider) -> list[str]:
     """Return the repository-relative paths the PR/MR touches.
 
@@ -605,7 +594,7 @@ def _get_per_directory_settings(git_provider) -> list:
     settings = get_settings()
     if not settings.config.get("enable_per_directory_settings", False):
         return []
-    config_branch = _get_config_branch()
+    config_branch = get_config_branch()
     tree_method = getattr(git_provider, "get_repo_settings_tree", None)
     if tree_method is None:
         return []
