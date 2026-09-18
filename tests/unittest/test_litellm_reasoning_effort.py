@@ -1299,3 +1299,172 @@ class TestLiteLLMReasoningEffortGrok:
         )
 
         assert call_kwargs["extra_body"]["reasoning"] == {"effort": "high"}
+
+
+class TestAdditionalReasoningEffortModels:
+    """Verify config.additional_reasoning_effort_models opts custom OpenAI-compatible
+    model IDs into config.reasoning_effort.
+
+    Keep the override additive so built-in SUPPORT_REASONING_EFFORT_MODELS entries stay
+    active and a fallback_models chain mixing a custom endpoint with a built-in reasoning
+    model keeps receiving the configured effort. When LiteLLM does not recognize the model,
+    whitelist reasoning_effort through allowed_openai_params so the endpoint receives it.
+    """
+
+    def _settings(self, additional):
+        """Build settings whose config.get resolves additional_reasoning_effort_models."""
+        settings = create_mock_settings("low")
+        settings.config.get = lambda key, default=None: {
+            "additional_reasoning_effort_models": additional,
+        }.get(key, default)
+        return settings
+
+    def _isolate_env(self, monkeypatch):
+        # LiteLLMAIHandler.__init__ branches on these; clear them for a deterministic handler.
+        for name in ("AWS_USE_IMDS", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY",
+                     "AWS_SESSION_TOKEN", "AWS_REGION_NAME", "OPENAI_API_KEY"):
+            monkeypatch.delenv(name, raising=False)
+
+    @pytest.mark.asyncio
+    async def test_custom_openai_model_forwards_reasoning_effort(self, monkeypatch, mock_logger):
+        """Forward reasoning_effort to a config-registered model id and whitelist it when
+        LiteLLM reports no support (gate 2 regression from issue #3459)."""
+        fake_settings = self._settings(additional=["deepseek-v4-flash-0731"])
+        monkeypatch.setattr(litellm_handler, "get_settings", lambda: fake_settings)
+        monkeypatch.setattr(litellm, "get_supported_openai_params", lambda **kwargs: [])
+        self._isolate_env(monkeypatch)
+
+        with patch.object(litellm_handler, "acompletion", new_callable=AsyncMock) as completion:
+            completion.return_value = create_mock_acompletion_response()
+            await LiteLLMAIHandler().chat_completion(
+                model="openai/deepseek-v4-flash-0731", system="system", user="user",
+            )
+
+        kwargs = completion.call_args.kwargs
+        assert kwargs["reasoning_effort"] == "low"
+        assert kwargs["allowed_openai_params"] == ["reasoning_effort"]
+
+    @pytest.mark.asyncio
+    async def test_custom_model_keeps_native_litellm_support(self, monkeypatch, mock_logger):
+        """Avoid forcing the allowlist when LiteLLM already lists reasoning_effort for the model."""
+        fake_settings = self._settings(additional=["deepseek-v4-flash-0731"])
+        monkeypatch.setattr(litellm_handler, "get_settings", lambda: fake_settings)
+        monkeypatch.setattr(litellm, "get_supported_openai_params", lambda **kwargs: ["reasoning_effort"])
+        self._isolate_env(monkeypatch)
+
+        with patch.object(litellm_handler, "acompletion", new_callable=AsyncMock) as completion:
+            completion.return_value = create_mock_acompletion_response()
+            await LiteLLMAIHandler().chat_completion(
+                model="openai/deepseek-v4-flash-0731", system="system", user="user",
+            )
+
+        kwargs = completion.call_args.kwargs
+        assert kwargs["reasoning_effort"] == "low"
+        assert "allowed_openai_params" not in kwargs
+
+    @pytest.mark.asyncio
+    async def test_override_is_additive(self, monkeypatch, mock_logger):
+        """Preserve reasoning_effort for built-in models when the override adds a custom id."""
+        fake_settings = self._settings(additional=["deepseek-v4-flash-0731"])
+        monkeypatch.setattr(litellm_handler, "get_settings", lambda: fake_settings)
+        monkeypatch.setattr(litellm, "get_supported_openai_params", lambda **kwargs: [])
+        self._isolate_env(monkeypatch)
+
+        for model in (
+            "openai/deepseek-v4-flash-0731",
+            "gemini/gemini-2.5-pro",
+        ):
+            with patch.object(litellm_handler, "acompletion", new_callable=AsyncMock) as completion:
+                completion.return_value = create_mock_acompletion_response()
+                await LiteLLMAIHandler().chat_completion(model=model, system="system", user="user")
+
+            kwargs = completion.call_args.kwargs
+            assert kwargs["reasoning_effort"] == "low", f"failed for {model}"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("additional", [
+        {"model": "deepseek-v4-flash-0731"},
+        ["deepseek-v4-flash-0731", 123],
+        [""],
+    ])
+    async def test_invalid_override_falls_back_to_builtin_list(self, monkeypatch, mock_logger, additional):
+        """Reject an unsupported override with a warning and fall back to the built-in list."""
+        fake_settings = self._settings(additional=additional)
+        monkeypatch.setattr(litellm_handler, "get_settings", lambda: fake_settings)
+        monkeypatch.setattr(litellm, "get_supported_openai_params", lambda **kwargs: [])
+        self._isolate_env(monkeypatch)
+
+        with patch.object(litellm_handler, "acompletion", new_callable=AsyncMock) as completion:
+            completion.return_value = create_mock_acompletion_response()
+            await LiteLLMAIHandler().chat_completion(
+                model="openai/deepseek-v4-flash-0731", system="system", user="user",
+            )
+
+        kwargs = completion.call_args.kwargs
+        assert "reasoning_effort" not in kwargs
+        assert any(
+            "additional_reasoning_effort_models" in call.args[0]
+            for call in mock_logger.warning.call_args_list
+        )
+
+    @pytest.mark.asyncio
+    async def test_env_string_override_forwards_reasoning_effort(self, monkeypatch, mock_logger):
+        """Accept an env-style string override and forward reasoning_effort for its model."""
+        fake_settings = self._settings(additional="deepseek-v4-flash-0731")
+        monkeypatch.setattr(litellm_handler, "get_settings", lambda: fake_settings)
+        monkeypatch.setattr(litellm, "get_supported_openai_params", lambda **kwargs: [])
+        self._isolate_env(monkeypatch)
+
+        with patch.object(litellm_handler, "acompletion", new_callable=AsyncMock) as completion:
+            completion.return_value = create_mock_acompletion_response()
+            await LiteLLMAIHandler().chat_completion(
+                model="openai/deepseek-v4-flash-0731", system="system", user="user",
+            )
+
+        kwargs = completion.call_args.kwargs
+        assert kwargs["reasoning_effort"] == "low"
+        assert kwargs["allowed_openai_params"] == ["reasoning_effort"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(("configured", "expected"), [("none", "low"), ("minimal", "low")])
+    async def test_astra_normalization_survives_override(self, monkeypatch, mock_logger, configured, expected):
+        """Keep the GPT-6 Astra none/minimal -> low conversion when gpt-6-astra is added via config."""
+        settings = create_mock_settings(configured)
+        settings.config.get = lambda key, default=None: {
+            "additional_reasoning_effort_models": ["gpt-6-astra"],
+        }.get(key, default)
+        monkeypatch.setattr(litellm_handler, "get_settings", lambda: settings)
+        monkeypatch.setattr(litellm, "get_supported_openai_params", lambda **kwargs: [])
+        self._isolate_env(monkeypatch)
+
+        with patch.object(litellm_handler, "acompletion", new_callable=AsyncMock) as completion:
+            completion.return_value = create_mock_acompletion_response()
+            await LiteLLMAIHandler().chat_completion(
+                model="gpt-6-astra", system="system", user="user",
+            )
+
+        kwargs = completion.call_args.kwargs
+        assert kwargs["reasoning_effort"] == expected
+        assert kwargs["allowed_openai_params"] == ["reasoning_effort"]
+
+    @pytest.mark.asyncio
+    async def test_gpt5_max_normalization_survives_override(self, monkeypatch, mock_logger):
+        """Keep the GPT-5 max -> xhigh conversion when a gpt-5 model is added via config."""
+        settings = create_mock_settings("max")
+        settings.config.get = lambda key, default=None: {
+            "additional_reasoning_effort_models": ["gpt-5.6"],
+        }.get(key, default)
+        monkeypatch.setattr(litellm_handler, "get_settings", lambda: settings)
+        monkeypatch.setattr(litellm, "get_supported_openai_params", lambda **kwargs: [])
+        self._isolate_env(monkeypatch)
+
+        with patch.object(litellm_handler, "acompletion", new_callable=AsyncMock) as completion:
+            completion.return_value = create_mock_acompletion_response()
+            await LiteLLMAIHandler().chat_completion(
+                model="gpt-5.6", system="system", user="user",
+            )
+
+        kwargs = completion.call_args.kwargs
+        assert kwargs["reasoning_effort"] == "xhigh"
+        assert "temperature" not in kwargs
+        assert kwargs["allowed_openai_params"] == ["reasoning_effort"]

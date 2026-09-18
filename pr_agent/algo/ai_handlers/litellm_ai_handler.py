@@ -1921,6 +1921,30 @@ def _as_list(value) -> list:
     return []
 
 
+def _coerce_string_list_config(value):
+    """Return a list-like config value while accepting env-style strings."""
+    if not value:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    if isinstance(value, str):
+        stripped_value = value.strip()
+        if not stripped_value:
+            return []
+        if stripped_value.startswith("[") and stripped_value.endswith("]"):
+            try:
+                parsed_value = json.loads(stripped_value)
+            except json.JSONDecodeError:
+                return None
+            if isinstance(parsed_value, list):
+                return parsed_value
+            return None
+        return [model.strip() for model in stripped_value.split(",") if model.strip()]
+    return None
+
+
 def _configured_client_retries():
     """config.num_retries as a non-negative int, or None (unset/invalid = client defaults).
 
@@ -2169,8 +2193,30 @@ class LiteLLMAIHandler(BaseAiHandler):
         # Model that doesn't support temperature argument
         self.no_support_temperature_models = NO_SUPPORT_TEMPERATURE_MODELS
 
-        # Models that support reasoning effort
-        self.support_reasoning_models = SUPPORT_REASONING_EFFORT_MODELS
+        # Append config-listed models to the built-in reasoning-effort list
+        additional_reasoning_models = _coerce_string_list_config(
+            get_settings().config.get("additional_reasoning_effort_models", [])
+        )
+        if additional_reasoning_models is None:
+            get_logger().warning(
+                "Invalid additional_reasoning_effort_models in config; expected a list of model names. "
+                "Falling back to the built-in reasoning-effort model list."
+            )
+            additional_reasoning_models = []
+        elif additional_reasoning_models and not all(
+            isinstance(model, str) and model.strip() for model in additional_reasoning_models
+        ):
+            get_logger().warning(
+                "Invalid additional_reasoning_effort_models in config; "
+                "expected a list of model name strings. "
+                "Falling back to the built-in reasoning-effort model list."
+            )
+            additional_reasoning_models = []
+        # Store stripped names so exact-match checks against the model succeed even when the
+        # config entries contain surrounding whitespace (validation above already used strip()).
+        self.support_reasoning_models = SUPPORT_REASONING_EFFORT_MODELS + [
+            model.strip() for model in additional_reasoning_models
+        ]
 
         # Models that support extended thinking (config override replaces the built-in list when non-empty)
         override = get_settings().config.get("claude_extended_thinking_models_override", []) or []
@@ -4084,7 +4130,9 @@ class LiteLLMAIHandler(BaseAiHandler):
                 # configured reasoning_effort is not silently dropped for models the
                 # user references with a provider prefix. OpenRouter routing variants
                 # such as :nitro and :floor are stripped only for this membership test.
-                if any(
+                # Skip GPT-5/GPT-6 Astra here so a model registered via config cannot
+                # overwrite the reasoning_effort normalization of its dedicated branch.
+                if not (is_gpt5_model or is_gpt6_astra) and any(
                     reasoning_model == m or reasoning_model.endswith("/" + m)
                     for m in self.support_reasoning_models
                 ):
@@ -4099,18 +4147,21 @@ class LiteLLMAIHandler(BaseAiHandler):
                     else:
                         get_logger().info(f"Adding reasoning_effort with value {reasoning_effort} to model {model}.")
                         kwargs["reasoning_effort"] = reasoning_effort
-                        if self._grok_reasoning_levels_for(model):
-                            try:
-                                supported_params = litellm.get_supported_openai_params(
-                                    model=model,
-                                    custom_llm_provider=custom_llm_provider or None,
-                                ) or []
-                            except Exception:
-                                supported_params = []
-                            # LiteLLM may omit reasoning_effort for unknown or
-                            # OpenAI-compatible gateway-prefixed Grok IDs.
-                            if "reasoning_effort" not in supported_params:
-                                kwargs["allowed_openai_params"] = ["reasoning_effort"]
+                        # Whitelist reasoning_effort through allowed_openai_params when
+                        # LiteLLM omits it from the params it reports for unknown or
+                        # OpenAI-compatible gateway-prefixed model IDs. Merge into any
+                        # existing allowed_openai_params instead of overwriting it.
+                        try:
+                            supported_params = litellm.get_supported_openai_params(
+                                model=model,
+                                custom_llm_provider=custom_llm_provider or None,
+                            ) or []
+                        except Exception:
+                            supported_params = []
+                        if "reasoning_effort" not in supported_params:
+                            allowed_params = kwargs.get("allowed_openai_params") or []
+                            if "reasoning_effort" not in allowed_params:
+                                kwargs["allowed_openai_params"] = [*allowed_params, "reasoning_effort"]
 
                 # https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking
                 adaptive_thinking_enabled = self._claude_thinking_controls["enable_claude_adaptive_thinking"]
