@@ -73,6 +73,66 @@ def _parse_gitlab_iso_datetime(value) -> Optional[datetime]:
         return None
 
 
+def _removed_lines_from_patch(patch: str) -> set:
+    """Line numbers in the base file that a unified-diff patch removes."""
+    removed = set()
+    base_line = None
+    for raw in (patch or "").splitlines():
+        match = re.match(r"^@@ -(\d+)(?:,\d+)? \+\d+(?:,\d+)? @@", raw)
+        if match:
+            base_line = int(match.group(1))
+            continue
+        if base_line is None:
+            continue  # ---/+++ file headers arrive before the first hunk
+        if raw.startswith("\\"):
+            continue  # "\ No newline at end of file" metadata is not a file line
+        if raw.startswith("-"):
+            removed.add(base_line)
+            base_line += 1
+        elif not raw.startswith("+"):
+            base_line += 1
+    return removed
+
+
+def _eligible_own_inline_thread(discussion, own_user_id: int):
+    """Position dict of a bot-owned, open, resolvable text thread, else None."""
+    notes = discussion.attributes.get('notes') or []
+    if not notes or not isinstance(notes[0], dict):
+        return None
+    opener = notes[0]
+    if opener.get('resolved') or opener.get('resolvable') is False:
+        return None
+    position = opener.get('position')
+    if not isinstance(position, dict) or position.get('position_type') != 'text':
+        return None
+    if not is_agent_inline_comment(opener.get('body')):
+        return None
+    for note in notes:
+        if not isinstance(note, dict):
+            return None
+        if note.get('system'):
+            continue
+        author = note.get('author')
+        author_id = author.get('id') if isinstance(author, dict) else None
+        if author_id != own_user_id:
+            return None
+    return position
+
+
+def _flagged_line_removed(position: dict, removed_lines: dict) -> bool:
+    # The compare base is the comment's head sha, so base coordinates are the
+    # comment-time coordinates: a flagged line resolves only when that exact
+    # line was removed/replaced. Lines merely shifted by insertions stay open.
+    # Deletion-anchored comments carry only old_line - a coordinate in the MR
+    # base, not the comment's head - so they cannot be checked and stay open.
+    if position.get('new_line') is None:
+        return False
+    path = position.get('new_path')
+    if not path:
+        return False
+    return position['new_line'] in (removed_lines.get(path) or set())
+
+
 def _is_outdated_own_inline_thread(discussion, own_user_id: int, current_head_sha: str) -> bool:
     notes = discussion.attributes.get('notes') or []
     if not notes or not isinstance(notes[0], dict):
@@ -994,6 +1054,12 @@ class GitLabProvider(GitProvider):
     def supports_review_finding_state(self) -> bool:
         return True
 
+    def supports_code_suggestion_state(self) -> bool:
+        return True
+
+    def get_code_suggestion_thread_context(self) -> str:
+        return ""
+
     def is_comment_authored_by_pr_agent(self, comment) -> bool:
         if isinstance(comment, dict):
             author = comment.get("author") or comment.get("user")
@@ -1113,6 +1179,98 @@ class GitLabProvider(GitProvider):
         if resolved:
             get_logger().info(
                 f"Resolved {resolved} outdated inline thread(s) on merge request {self.id_mr}")
+
+    def _removed_lines_since(self, base_sha: str, head_sha: str) -> dict:
+        """Base-side line numbers removed per path between two commits, via repository_compare."""
+        removed = {}
+        try:
+            project = self.gl.projects.get(self.id_project)
+            # straight=True: direct base..head comparison. The default merge-base
+            # comparison reports lines dropped by a rebase/merge as removed, which
+            # would resolve threads whose flagged code still exists at head.
+            comparison = project.repository_compare(base_sha, head_sha, straight=True)
+        except Exception as e:
+            get_logger().warning(
+                f"Could not compare {base_sha[:12]}..{head_sha[:12]} for fixed-thread detection: {e}")
+            return removed
+        if isinstance(comparison, dict):
+            diffs = comparison.get('diffs', []) or []
+        else:
+            diffs = getattr(comparison, 'diffs', []) or []
+        for diff in diffs:
+            # Compare entries are dicts in practice; normalize object-shaped
+            # responses the same way the incremental-review path does.
+            if not isinstance(diff, dict):
+                diff = {key: getattr(diff, key, None)
+                        for key in ('new_path', 'old_path', 'diff')}
+            path = diff.get('old_path') or diff.get('new_path')
+            if path:
+                removed.setdefault(path, set()).update(_removed_lines_from_patch(diff.get('diff')))
+        return removed
+
+    def reconcile_code_suggestion_threads(self) -> int:
+        if not get_settings().get("GITLAB.AUTO_RESOLVE_FIXED_INLINE_THREADS", False):
+            return 0
+        if getattr(self, '_fixed_threads_swept', False):
+            return 0  # one sweep per process: repeats only burn API calls
+        own_user_id = self._get_own_user_id()
+        try:
+            current_head_sha = self.mr.diff_refs['head_sha']
+        except (KeyError, TypeError, AttributeError):
+            current_head_sha = None
+        if own_user_id is None or not current_head_sha:
+            get_logger().warning(
+                f"Skipping fixed inline thread cleanup on merge request {self.id_mr} "
+                f"(bot user: {own_user_id}, current head sha: {current_head_sha})"
+            )
+            return 0
+        try:
+            discussions = self.mr.discussions.list(get_all=True)
+        except Exception as e:
+            get_logger().warning(f"Failed to list discussions of merge request {self.id_mr}: {e}")
+            return 0
+        self._fixed_threads_swept = True
+        # Threads pinned to the same head share one compare call.
+        removed_lines_cache = {}
+
+        def removed_lines_for(position) -> dict:
+            recorded = position.get('head_sha')
+            if not recorded or recorded == current_head_sha:
+                return None  # nothing pushed since the comment - nothing could be fixed yet
+            if recorded not in removed_lines_cache:
+                removed_lines_cache[recorded] = self._removed_lines_since(recorded, current_head_sha)
+            return removed_lines_cache[recorded]
+
+        resolved = 0
+        released_fps = set()
+        for discussion in discussions:
+            discussion_id = getattr(discussion, 'id', None)
+            try:
+                notes = discussion.attributes.get('notes') or []
+                # Cheap eligibility guards first: ineligible discussions must not
+                # trigger a repository_compare call.
+                position = _eligible_own_inline_thread(discussion, own_user_id)
+                if position is None:
+                    continue
+                removed_lines = removed_lines_for(position)
+                if removed_lines is None:
+                    continue
+                if not _flagged_line_removed(position, removed_lines):
+                    continue
+                discussion.resolved = True
+                discussion.save()
+                resolved += 1
+                for note in notes:
+                    if isinstance(note, dict):
+                        released_fps |= marker_fingerprints(note.get('body'))
+            except Exception as e:
+                get_logger().warning(f"Failed to resolve fixed inline thread {discussion_id}: {e}")
+        if released_fps:
+            get_inline_comment_store(self).release(released_fps)
+        if resolved:
+            get_logger().info(
+                f"Resolved {resolved} fixed inline thread(s) on merge request {self.id_mr}")
+        return resolved
 
     def edit_comment_from_comment_id(self, comment_id: int, body: str):
         body = self.limit_output_characters(body, self.max_comment_chars)
@@ -1294,6 +1452,7 @@ class GitLabProvider(GitProvider):
     def publish_code_suggestions(self, code_suggestions: list) -> bool:
         # Runs first so the fingerprints it frees are in the store before any dedup lookup.
         self.resolve_outdated_inline_threads()
+        self.reconcile_code_suggestion_threads()
         # When true, suggestions are queued as GitLab draft notes and published together in a single
         # batch at the end, instead of each one going out as its own live discussion (and its own
         # notification/email) as soon as it's created.
