@@ -62,34 +62,46 @@ class PRUpdateChangelog:
         self.main_language = get_main_pr_language(
             self.git_provider.get_languages(), self.git_provider.get_files()
         )
+        self.changelog_read_error = None
         self._get_changelog_file()  # self.changelog_file_str
 
-        self.ai_handler = ai_handler()
-        if self.main_language:
-            self.ai_handler.main_pr_language = self.main_language
+        try:
+            self.ai_handler = ai_handler()
+            if self.main_language:
+                self.ai_handler.main_pr_language = self.main_language
 
-        self.patches_diff = None
-        self.prediction = None
-        self.cli_mode = cli_mode
-        self.vars = {
-            "title": self.git_provider.pr.title,
-            "branch": self.git_provider.get_pr_branch(),
-            "description": self.git_provider.get_pr_description(),
-            "language": self.main_language,
-            "diff": "",  # empty diff for initial calculation
-            "pr_link": "",
-            "changelog_file_str": self.changelog_file_str,
-            "today": date.today(),
-            "extra_instructions": get_settings().pr_update_changelog.extra_instructions,
-            "commit_messages_str": self.git_provider.get_commit_messages(),
-        }
-        self.token_handler = TokenHandler(self.git_provider.pr,
-                                          self.vars,
-                                          get_settings().pr_update_changelog_prompt.system,
-                                          get_settings().pr_update_changelog_prompt.user)
+            self.patches_diff = None
+            self.prediction = None
+            self.cli_mode = cli_mode
+            self.vars = {
+                "title": self.git_provider.pr.title,
+                "branch": self.git_provider.get_pr_branch(),
+                "description": self.git_provider.get_pr_description(),
+                "language": self.main_language,
+                "diff": "",  # empty diff for initial calculation
+                "pr_link": "",
+                "changelog_file_str": self.changelog_file_str,
+                "today": date.today(),
+                "extra_instructions": get_settings().pr_update_changelog.extra_instructions,
+                "commit_messages_str": self.git_provider.get_commit_messages(),
+            }
+            self.token_handler = TokenHandler(self.git_provider.pr,
+                                              self.vars,
+                                              get_settings().pr_update_changelog_prompt.system,
+                                              get_settings().pr_update_changelog_prompt.user)
+        except Exception as setup_error:
+            changelog_read_error = self.changelog_read_error
+            if changelog_read_error is None:
+                raise
+            get_logger().exception(
+                f"Failed to initialize changelog generation after a read error: {setup_error}"
+            )
+            self._publish_changelog_read_error_fallback()
+            raise changelog_read_error
 
     async def run(self):
         get_logger().info('Updating the changelog...')
+        changelog_read_error = getattr(self, "changelog_read_error", None)
 
         # If a push was requested but isn't possible (unsupported provider or restricted_mode),
         # the changelog is still generated and published as a comment below (commit_changelog is
@@ -102,13 +114,33 @@ class PRUpdateChangelog:
 
         temporary_comment_published = False
         if get_settings().config.publish_output:
-            self.git_provider.publish_comment("Preparing changelog updates...", is_temporary=True)
-            temporary_comment_published = True
+            try:
+                self.git_provider.publish_comment("Preparing changelog updates...", is_temporary=True)
+                temporary_comment_published = True
+            except Exception as progress_error:
+                if changelog_read_error is None:
+                    raise
+                get_logger().exception(
+                    f"Failed to publish changelog progress after a read error: {progress_error}"
+                )
 
         try:
-            await retry_with_fallback_models(self._prepare_prediction, model_type=ModelType.WEAK)
+            try:
+                await retry_with_fallback_models(self._prepare_prediction, model_type=ModelType.WEAK)
+            except Exception as generation_error:
+                if changelog_read_error is None:
+                    raise
+                get_logger().exception(
+                    f"Failed to generate changelog fallback after a read error: {generation_error}"
+                )
+                self._publish_changelog_read_error_fallback()
+                raise changelog_read_error
 
             new_file_content, answer = self._prepare_changelog_update()
+
+            if changelog_read_error is not None:
+                self._publish_changelog_read_error_fallback(answer)
+                raise changelog_read_error
 
             # Output the relevant configurations if enabled
             if get_settings().get('config', {}).get('output_relevant_configurations', False):
@@ -135,6 +167,22 @@ class PRUpdateChangelog:
                     get_logger().warning(
                         f"Failed to remove the temporary changelog comment: {cleanup_error}"
                     )
+
+    def _publish_changelog_read_error_fallback(self, answer: str = ""):
+        if answer:
+            changelog_comment = f"**Changelog updates:** 🔄\n\n{answer}"
+        else:
+            changelog_comment = "**Changelog update could not be generated.**"
+        changelog_comment += (
+            "\n\n> ⚠️ These changes were not pushed because the existing "
+            "CHANGELOG.md could not be read safely."
+        )
+        try:
+            self.git_provider.publish_comment(changelog_comment)
+        except Exception as fallback_error:
+            get_logger().exception(
+                f"Failed to publish changelog fallback after a read error: {fallback_error}"
+            )
 
     async def _prepare_prediction(self, model: str):
         variables = copy.deepcopy(self.vars)
@@ -259,10 +307,16 @@ Example:
         return example_changelog
 
     def _get_changelog_file(self):
+        strict_read = self.commit_changelog and get_settings().config.publish_output
         try:
-            self.changelog_file = self.git_provider.get_pr_file_content(
-                "CHANGELOG.md", self.git_provider.get_pr_branch()
-            )
+            if strict_read:
+                self.changelog_file = self.git_provider.get_pr_file_content(
+                    "CHANGELOG.md", self.git_provider.get_pr_branch(), propagate_errors=True
+                )
+            else:
+                self.changelog_file = self.git_provider.get_pr_file_content(
+                    "CHANGELOG.md", self.git_provider.get_pr_branch()
+                )
 
             if isinstance(self.changelog_file, bytes):
                 self.changelog_file = self.changelog_file.decode('utf-8')
@@ -272,6 +326,8 @@ Example:
             self.changelog_file_str = "\n".join(changelog_file_lines)
         except Exception as e:
             get_logger().warning(f"Error getting changelog file: {e}")
+            if strict_read:
+                self.changelog_read_error = e
             self.changelog_file_str = ""
             self.changelog_file = ""
             return
