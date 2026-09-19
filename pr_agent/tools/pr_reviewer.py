@@ -35,7 +35,7 @@ from pr_agent.algo.review_finding_state import (
     reconcile_review_findings,
 )
 from pr_agent.algo.review_merge import merge_review_chunks
-from pr_agent.algo.run_details import get_run_details, init_run_details, record_model_used
+from pr_agent.algo.run_details import get_run_details, init_run_details, record_command_failure, record_model_used
 from pr_agent.algo.skills_loader import get_skills_context
 from pr_agent.algo.token_budget import AttemptTokenBudget
 from pr_agent.algo.token_handler import TokenHandler
@@ -450,6 +450,8 @@ class PRReviewer:
             review_error = e
             review_failed = True
             get_logger().error(f"Failed to review PR: {e}")
+            # The status of the whole run must not read as success just because the error stopped here.
+            record_command_failure()
             if get_settings().config.get("propagate_tool_errors", False):
                 raise
         finally:
