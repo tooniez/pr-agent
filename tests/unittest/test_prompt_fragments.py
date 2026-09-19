@@ -106,6 +106,36 @@ def test_affected_templates_delegate_to_shared_fragment_once(prompt_name, legacy
     assert legacy_example not in system_prompt
 
 
+@pytest.mark.parametrize("prompt_name", [
+    "pr_code_suggestions_prompt",
+    "pr_code_suggestions_prompt_not_decoupled",
+])
+def test_suggestion_prompts_allow_dependencies_introduced_by_improved_code(prompt_name):
+    prompt = get_settings().get(prompt_name).system
+    variables = {
+        "focus_only_on_problems": True,
+        "num_code_suggestions": 3,
+        "diff_hunk_format": "diff",
+        "skills_context": "",
+        "extra_instructions": "",
+        "repo_context": "",
+    }
+
+    rendered = Environment().from_string(prompt).render(variables)
+
+    assert "If the suggested `improved_code` introduces a dependency" in rendered
+    assert "standalone or unrelated missing" in rendered
+
+
+def test_reflection_prompt_does_not_zero_required_imports():
+    prompt = get_settings().pr_code_suggestions_reflect_prompt.system
+
+    rendered = Environment().from_string(prompt).render({"diff_hunk_format": "diff"})
+
+    assert "- Add standalone or unrelated missing import statements" in rendered
+    assert "- Add missing import statements" not in rendered
+
+
 def test_fragment_renderer_sandboxes_host_overrides(restore_prompt_settings):
     get_settings().set(
         "prompt_fragments.diff_hunk_format",
