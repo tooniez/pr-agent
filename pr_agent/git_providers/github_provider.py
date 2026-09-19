@@ -29,10 +29,10 @@ from ..algo.inline_comment_dedup import (
     has_marker,
 )
 from ..algo.language_handler import is_valid_file
+from ..algo.token_budget import clip_tokens
 from ..algo.types import EDIT_TYPE
 from ..algo.utils import (
     Range,
-    clip_tokens,
     find_line_number_of_relevant_line_in_file,
     load_large_diff,
     set_file_languages,
