@@ -7,15 +7,15 @@ from pr_agent.tools.pr_similar_issue import PRSimilarIssue
 
 
 class FakeDB:
-    def __init__(self, table_names):
-        self._table_names = table_names
+    def __init__(self, tables):
+        self._tables = tables
         self.table = None
 
-    def table_names(self):
-        return self._table_names
+    def list_tables(self):
+        return SimpleNamespace(tables=self._tables)
 
     def __getitem__(self, name):
-        if name not in self._table_names:
+        if name not in self._tables:
             raise KeyError(name)
         return self.table
 
@@ -187,6 +187,40 @@ def test_ingest_warns_when_table_missing(monkeypatch):
     assert fake_table.add_calls == []
 
 
+def test_ingest_finds_a_table_beyond_the_first_pagination_page(monkeypatch):
+    """A table past the first ten names is still found."""
+    names = [f"table-{i:02d}" for i in range(13)]
+    names[10] = "codium-ai-pr-agent-issues"
+    fake_db = FakeDB(names)
+    fake_table = _fake_table()
+    fake_db.table = fake_table
+
+    tool = _make_tool(monkeypatch, fake_db)
+
+    tool._update_table_with_issues(
+        [_fake_issue()],
+        "utkarsh-demo",
+        ingest=True,
+    )
+
+    assert fake_table.add_calls == [2]
+
+
+def test_init_does_not_rebuild_when_the_table_sorts_past_the_first_ten(monkeypatch):
+    """A table beyond the deprecated pagination cap is recognized, so the index is not rebuilt."""
+    names = [f"table-{i:02d}" for i in range(13)]
+    names[10] = "codium-ai-pr-agent-issues"
+
+    tool = _make_tool(monkeypatch, FakeDB(names))
+
+    assert tool._table_exists_in_db("codium-ai-pr-agent-issues")
+
+
+def test_init_rebuilds_when_the_table_is_absent(monkeypatch):
+    """A genuinely missing table is still treated as needing a full rebuild."""
+    tool = _make_tool(monkeypatch, FakeDB(["table-00"]))
+
+    assert not tool._table_exists_in_db("codium-ai-pr-agent-issues")
 def _capturing_table():
     fake_table = _fake_table()
     fake_table.added_rows = []
