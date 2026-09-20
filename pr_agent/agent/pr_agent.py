@@ -15,7 +15,7 @@ from pr_agent.algo.comment_identity import add_comment_identity, comment_matches
 from pr_agent.algo.utils import update_settings_from_args
 from pr_agent.config_loader import get_settings, global_settings
 from pr_agent.git_providers import get_git_provider_with_context
-from pr_agent.git_providers.github_provider import IncompletePullRequestFilesError
+from pr_agent.git_providers.git_provider import IncompletePullRequestFilesError
 from pr_agent.git_providers.utils import apply_repo_settings
 from pr_agent.log import get_logger
 from pr_agent.telemetry.meter import get_commands_counter

@@ -44,6 +44,7 @@ from .git_provider import (
     MAX_FILES_ALLOWED_FULL,
     FilePatchInfo,
     GitProvider,
+    IncompletePullRequestFilesError,
     IncrementalPR,
     get_config_branch,
     redact_credentials,
@@ -59,10 +60,6 @@ def _next_page_url(headers: dict) -> str:
         if match:
             return match.group(1)
     return ""
-
-
-class IncompletePullRequestFilesError(RuntimeError):
-    """Represent an incomplete or inconsistent GitHub pull-request file set."""
 
 
 class GithubProvider(GitProvider):
