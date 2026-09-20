@@ -178,7 +178,6 @@ class PRSimilarIssue:
                 self.pinecone_index = self.pc.Index(name=index_name)
                 issues_to_update = []
                 issues_paginated_list = repo_obj.get_issues(state='all')
-                counter = 1
                 for issue in issues_paginated_list:
                     if issue.pull_request:
                         continue
@@ -192,13 +191,12 @@ class PRSimilarIssue:
                             is_new_issue = False
                             break
                     if is_new_issue:
-                        counter += 1
                         issues_to_update.append(issue)
                     else:
                         break
 
                 if issues_to_update:
-                    get_logger().info(f'Updating index with {counter} new issues...')
+                    get_logger().info(f'Updating index with {len(issues_to_update)} new issues...')
                     self._update_index_with_issues(
                         issues_to_update,
                         repo_name_for_index,
@@ -244,7 +242,6 @@ class PRSimilarIssue:
             else:  # update table if needed
                 issues_to_update = []
                 issues_paginated_list = repo_obj.get_issues(state='all')
-                counter = 1
                 for issue in issues_paginated_list:
                     if issue.pull_request:
                         continue
@@ -258,13 +255,12 @@ class PRSimilarIssue:
                             is_new_issue = False
                             break
                     if is_new_issue:
-                        counter += 1
                         issues_to_update.append(issue)
                     else:
                         break
 
                 if issues_to_update:
-                    get_logger().info(f'Updating index with {counter} new issues...')
+                    get_logger().info(f'Updating index with {len(issues_to_update)} new issues...')
                     self._update_table_with_issues(issues_to_update, repo_name_for_index, ingest=True)
                 else:
                     get_logger().info('No new issues to update')
@@ -325,7 +321,6 @@ class PRSimilarIssue:
             else:
                 issues_to_update = []
                 issues_paginated_list = repo_obj.get_issues(state='all')
-                counter = 1
                 for issue in issues_paginated_list:
                     if issue.pull_request:
                         continue
@@ -340,13 +335,12 @@ class PRSimilarIssue:
                         ]),
                     )
                     if response.count == 0:
-                        counter += 1
                         issues_to_update.append(issue)
                     else:
                         break
 
                 if issues_to_update:
-                    get_logger().info(f'Updating index with {counter} new issues...')
+                    get_logger().info(f'Updating index with {len(issues_to_update)} new issues...')
                     self._update_qdrant_with_issues(issues_to_update, repo_name_for_index, ingest=True)
                 else:
                     get_logger().info('No new issues to update')
@@ -507,12 +501,13 @@ class PRSimilarIssue:
             if issue.pull_request:
                 continue
 
-            counter += 1
-            if counter % 100 == 0:
-                get_logger().info(f"Scanned {counter} issues")
             if counter >= self.max_issues_to_scan:
                 get_logger().info(f"Scanned {self.max_issues_to_scan} issues, stopping")
                 break
+
+            counter += 1
+            if counter % 100 == 0:
+                get_logger().info(f"Scanned {counter} issues")
 
             issue_str, comments, number = self._process_issue(issue)
             issue_key = f"issue_{number}"
@@ -602,12 +597,13 @@ class PRSimilarIssue:
             if issue.pull_request:
                 continue
 
-            counter += 1
-            if counter % 100 == 0:
-                get_logger().info(f"Scanned {counter} issues")
             if counter >= self.max_issues_to_scan:
                 get_logger().info(f"Scanned {self.max_issues_to_scan} issues, stopping")
                 break
+
+            counter += 1
+            if counter % 100 == 0:
+                get_logger().info(f"Scanned {counter} issues")
 
             issue_str, comments, number = self._process_issue(issue)
             issue_key = f"issue_{number}"
@@ -711,12 +707,13 @@ class PRSimilarIssue:
             if issue.pull_request:
                 continue
 
-            counter += 1
-            if counter % 100 == 0:
-                get_logger().info(f"Scanned {counter} issues")
             if counter >= self.max_issues_to_scan:
                 get_logger().info(f"Scanned {self.max_issues_to_scan} issues, stopping")
                 break
+
+            counter += 1
+            if counter % 100 == 0:
+                get_logger().info(f"Scanned {counter} issues")
 
             issue_str, comments, number = self._process_issue(issue)
             issue_key = f"issue_{number}"
