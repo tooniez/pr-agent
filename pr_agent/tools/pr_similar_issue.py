@@ -188,11 +188,13 @@ class PRSimilarIssue:
                     get_logger().info('Done')
 
             ingest = True
+            force_refresh = False
             if index_name not in self.db.table_names():
                 run_from_scratch = True
                 ingest = False
             else:
                 if get_settings().pr_similar_issue.force_update_dataset:
+                    force_refresh = True
                     ingest = True
                 else:
                     self.table = self.db[index_name]
@@ -208,7 +210,7 @@ class PRSimilarIssue:
                 issues = list(repo_obj.get_issues(state='all'))
                 get_logger().info('Done')
 
-                self._update_table_with_issues(issues, repo_name_for_index, ingest=ingest)
+                self._update_table_with_issues(issues, repo_name_for_index, ingest=ingest, force_refresh=force_refresh)
             else:  # update table if needed
                 issues_to_update = []
                 issues_paginated_list = repo_obj.get_issues(state='all')
@@ -542,7 +544,8 @@ class PRSimilarIssue:
         time.sleep(5)  # wait for pinecone to finalize upserting before querying
         get_logger().info('Done')
 
-    def _update_table_with_issues(self, issues_list, repo_name_for_index, ingest=False):
+    def _update_table_with_issues(self, issues_list, repo_name_for_index, ingest=False,
+                                  force_refresh=False):
         import pandas as pd
 
         get_logger().info('Processing issues...')
@@ -615,7 +618,11 @@ class PRSimilarIssue:
             time.sleep(15)
         else:
             get_logger().info('Ingesting in Table...')
-            if self.index_name not in self.db.table_names():
+            if self.index_name in self.db.table_names():
+                if self.table is None:
+                    self.table = self.db[self.index_name]
+                if force_refresh:
+                    self.table.delete(f"metadata.repo='{repo_name_for_index}'")
                 self.table.add(df)
             else:
                 get_logger().info(f"Table {self.index_name} doesn't exists!")
