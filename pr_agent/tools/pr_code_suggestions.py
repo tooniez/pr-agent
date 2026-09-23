@@ -1339,7 +1339,46 @@ class PRCodeSuggestions:
             self.git_provider.publish_comment("\n\n---\n\n".join(fallback_comments))
             self._output_published = True
         if code_suggestions and not is_successful:
-            raise RuntimeError("Failed to publish code suggestions after individual retries")
+            if not getattr(self, "_output_published", False):
+                # Inline publication is exhausted but generation itself succeeded. Fall back
+                # to the summarized-comment path so the author still receives the
+                # already-computed suggestions instead of a misleading failure comment (#3602).
+                get_logger().info(
+                    "Failed to publish code suggestions after retries, "
+                    "falling back to summarized suggestions comment"
+                )
+                try:
+                    pr_body = self.generate_summarized_suggestions(data)
+                    if not pr_body:
+                        # The summarizer swallows per-suggestion exceptions and renders an
+                        # empty summary instead of dropping just the malformed entry, so a
+                        # collapsed render must stay a failure and not publish an empty
+                        # comment as if the suggestions had been delivered.
+                        raise RuntimeError("summarized suggestions rendered empty")
+                    pr_body += coverage_footer
+                    pr_body = add_comment_identity(
+                        pr_body,
+                        PRCodeSuggestionsIdentity.SUMMARY.value,
+                        self.git_provider,
+                    )
+                    response = self.git_provider.publish_comment(pr_body)
+                    if response is None and self.git_provider.supports_comment_publish_confirmation():
+                        # This provider confirms publications with a comment object, so a
+                        # `None` return means the summary was not delivered (e.g. Gitea's
+                        # silent API failure); do not record the fallback as delivered.
+                        raise RuntimeError("publish_comment returned no comment response")
+                    self._output_published = True
+                except Exception as e:
+                    get_logger().error(
+                        f"Failed to publish summarized code suggestions after inline retries: {e}"
+                    )
+                    raise RuntimeError(
+                        "Failed to publish code suggestions after individual retries"
+                    ) from e
+            else:
+                # Partial output (e.g. fallback comments) was already published, so keep
+                # surfacing the exhausted retries to the operator.
+                raise RuntimeError("Failed to publish code suggestions after individual retries")
         return
 
     def _get_diff_file(self, relevant_file):
