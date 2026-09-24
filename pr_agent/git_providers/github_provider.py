@@ -1132,7 +1132,9 @@ class GithubProvider(GitProvider):
             try:
                 fixed_comment = copy.deepcopy(comment)  # avoid modifying the original comment dict for later logging
                 if "```suggestion" in comment["body"]:
-                    fixed_comment["body"] = comment["body"].split("```suggestion")[0]
+                    # Keep what follows the block, where the dedup markers live.
+                    before, _, rest = comment["body"].partition("```suggestion")
+                    fixed_comment["body"] = before + rest.rsplit("```", 1)[-1]
                 if "start_line" in comment:
                     fixed_comment["line"] = comment["start_line"]
                     del fixed_comment["start_line"]
