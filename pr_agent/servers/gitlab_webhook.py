@@ -252,21 +252,22 @@ def should_process_pr_logic(data) -> bool:
 def authenticate_gitlab_webhook(request: Request, log_context: dict):
     request_token = request.headers.get("X-Gitlab-Token")
     # Built only for a request that will actually consult it, so a cloud client that
-    # fails to initialize cannot drop webhooks authenticated by shared secret instead.
-    secret_provider = get_fork_safe_secret_provider() if request_token else None
-    if request_token and secret_provider:
-        secret = secret_provider.get_secret(request_token)
-        if not secret:
-            get_logger().warning("Empty secret retrieved for the provided webhook token")
-            return JSONResponse(status_code=status.HTTP_401_UNAUTHORIZED,
-                                content=jsonable_encoder({"message": "unauthorized"}))
+    # fails to initialize or read cannot drop webhooks authenticated by shared secret instead.
+    secret = None
+    if request_token:
+        try:
+            secret_provider = get_fork_safe_secret_provider()
+            secret = secret_provider.get_secret(request_token) if secret_provider else None
+        except Exception as e:
+            get_logger().warning(f"Secret provider failed ({type(e).__name__}), falling back to the shared secret")
+    if secret:
         try:
             secret_dict = json.loads(secret)
-            gitlab_token = secret_dict["gitlab_token"]
+            context["settings"].gitlab.personal_access_token = secret_dict["gitlab_token"]
             log_context["token_id"] = secret_dict.get("token_name", secret_dict.get("id", "unknown"))
-            context["settings"].gitlab.personal_access_token = gitlab_token
         except Exception as e:
-            get_logger().error(f"Failed to validate the secret for the provided webhook token: {e}")
+            get_logger().error(
+                f"Failed to validate the secret for the provided webhook token: {type(e).__name__}")
             return JSONResponse(status_code=status.HTTP_401_UNAUTHORIZED,
                                 content=jsonable_encoder({"message": "unauthorized"}))
     elif get_settings().get("GITLAB.SHARED_SECRET"):
