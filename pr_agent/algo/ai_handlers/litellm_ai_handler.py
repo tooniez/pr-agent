@@ -2216,7 +2216,10 @@ class LiteLLMAIHandler(BaseAiHandler):
             "budget_tokens": extended_thinking_budget_tokens
         }
         if get_verbosity_level() >= 2:
-            get_logger().info(f"Adding max output tokens {extended_thinking_max_output_tokens} to model {model}, extended thinking budget tokens: {extended_thinking_budget_tokens}")
+            get_logger().info(
+                f"Adding max output tokens {extended_thinking_max_output_tokens} to model {model}, "
+                f"extended thinking budget tokens: {extended_thinking_budget_tokens}"
+            )
         kwargs["max_tokens"] = extended_thinking_max_output_tokens
 
         # temperature may only be set to 1 when thinking is enabled
@@ -2449,7 +2452,11 @@ class LiteLLMAIHandler(BaseAiHandler):
                     timeout=_IMAGE_HEAD_TIMEOUT_SECONDS,
                 )
                 if r.status_code == 404:
-                    error_msg = "The image link is not [alive](img_path).\nPlease repost the original image as a comment, and send the question again with 'quote reply' (see [instructions](https://docs.pr-agent.ai/tools/ask/#ask-on-images))."
+                    error_msg = (
+                    "The image link is not [alive](img_path).\n"
+                    "Please repost the original image as a comment, and send the question again with 'quote reply' "
+                    "(see [instructions](https://docs.pr-agent.ai/tools/ask/#ask-on-images))."
+                )
                     get_logger().error(error_msg)
                     return f"{error_msg}", "error"
             except Exception as e:
@@ -2934,11 +2941,17 @@ class LiteLLMAIHandler(BaseAiHandler):
         custom_llm_provider = str(kwargs.get("custom_llm_provider") or "").strip().lower()
         provider = self._resolve_configured_request_provider(kwargs.get("model"), custom_llm_provider)
         transport = (
-            custom_llm_provider or self._resolve_request_transport_provider(kwargs.get("model")) or provider
+            custom_llm_provider
+            or self._resolve_request_transport_provider(kwargs.get("model"))
+            or provider
         )
         transport_model = kwargs.get("deployment_id") or kwargs.get("model")
         azure_ad_token = kwargs.get("azure_ad_token")
-        oidc_selector = azure_ad_token if isinstance(azure_ad_token, str) and azure_ad_token.startswith("oidc/") else None
+        oidc_selector = (
+            azure_ad_token
+            if isinstance(azure_ad_token, str) and azure_ad_token.startswith("oidc/")
+            else None
+        )
         companion_auth = (
             self._uses_captured_azure_companion_auth(provider)
             and not _is_cloudflare_gateway(kwargs.get("api_base"))
