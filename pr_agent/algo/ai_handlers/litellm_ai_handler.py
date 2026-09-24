@@ -2458,6 +2458,31 @@ class LiteLLMAIHandler(BaseAiHandler):
                                 "GPT-5 models name their top reasoning level 'xhigh'; "
                                 "using 'xhigh' for reasoning_effort='max'"
                             )
+                    elif not is_gpt6_astra and effort == ReasoningEffort.MINIMAL.value:
+                        # From LiteLLM 1.102.0 the bundled model map marks 'minimal' unsupported
+                        # for gpt-5.1, gpt-5.2, gpt-5.4 and newer base models (bare gpt-5 still
+                        # takes it), and litellm raises UnsupportedParamsError for that value. Clamp
+                        # to 'low' only when the metadata says so; unknown models keep 'minimal'.
+                        # GPT-6 Astra is clamped to 'low' in the first branch.
+                        lookup_model = model
+                        while lookup_model.startswith(("openai/", "azure/")):
+                            lookup_model = lookup_model.removeprefix("openai/").removeprefix("azure/")
+                        lookup_model = lookup_model.removesuffix("_thinking")
+                        try:
+                            supports_minimal = litellm.get_model_info(lookup_model).get(
+                                "supports_minimal_reasoning_effort"
+                            )
+                        except Exception:
+                            get_logger().debug(
+                                f"litellm.get_model_info could not resolve model '{lookup_model}'"
+                            )
+                            supports_minimal = None
+                        if supports_minimal is False:
+                            effort = ReasoningEffort.LOW.value
+                            get_logger().info(
+                                f"{lookup_model} does not support reasoning_effort='minimal'; "
+                                "using 'low'"
+                            )
 
                     if openrouter_model:
                         openrouter_reasoning_effort = effort
