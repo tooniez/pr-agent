@@ -141,6 +141,17 @@ MODEL_RETRIES = 2
 _IMAGE_HEAD_TIMEOUT_SECONDS = 5
 OPENAI_DEFAULT_API_BASE = "https://api.openai.com/v1"
 
+# Token-count allowances used when estimating the cached prompt prefix for the
+# cache_control_injection_points pre-call warning. Mirrors pr_help_message.py.
+_CACHE_MESSAGE_FRAMING_ALLOWANCE = 16
+_CACHE_REPLY_FRAMING_ALLOWANCE = 16
+# Providers that serve Anthropic Claude models and honor cache_control injection.
+_ANTHROPIC_CACHE_REQUEST_PROVIDERS = ("anthropic", "bedrock", "bedrock_mantle", "vertex_ai")
+# One-time warnings telling the operator when an enabled prompt-cache config cannot take
+# effect, keyed by (model, reason) so the same warning is logged once per process. See
+# _warn_prompt_cache_conditions.
+_ANTHROPIC_CACHE_WARNING_LOG: set[tuple[str, str]] = set()
+
 PROVIDER_SETTING_PATHS = {
     "anthropic": {"api_key": "ANTHROPIC.KEY"},
     "codestral": {"api_key": "CODESTRAL.KEY"},
@@ -265,6 +276,17 @@ def _should_retry_same_model(exc: BaseException) -> bool:
     if isinstance(exc, openai.APITimeoutError):
         return _as_bool(get_settings().config.get("retry_same_model_on_timeout", True), default=True)
     return isinstance(exc, openai.APIError)
+
+
+def _log_anthropic_cache_warning(model: str, reason: str) -> None:
+    """Log one warning per process for a prompt-cache config that cannot take effect."""
+    key = (model, reason)
+    if key in _ANTHROPIC_CACHE_WARNING_LOG:
+        return
+    _ANTHROPIC_CACHE_WARNING_LOG.add(key)
+    get_logger().warning(
+        f"cache_control_injection_points may not take effect for {model}: {reason}"
+    )
 
 
 class LiteLLMAIHandler(BaseAiHandler):
@@ -2407,6 +2429,80 @@ class LiteLLMAIHandler(BaseAiHandler):
             raise ValueError("LITELLM.CACHE_CONTROL_INJECTION_POINTS must be a JSON/TOML array")
         return cache_control_injection_points
 
+    @staticmethod
+    def _warn_prompt_cache_conditions(
+        model: str, system: str, user: str, injection_points, request_provider: str | None = None
+    ) -> None:
+        """Warn once per process when an enabled prompt-cache config cannot take effect.
+
+        LiteLLM skips Anthropic prompt caching silently when the model does not support it or
+        the cached prefix stays below the model's ``prompt_cache_min_tokens``. Both conditions
+        are knowable before the call, so surface them instead of leaving the operator blind.
+        Best effort: a metadata gap or estimate failure skips the check, never fails the call.
+        """
+        if not isinstance(model, str) or not model:
+            return
+        is_claude_named = "claude" in model.lower()
+        is_anthropic_provider = request_provider in _ANTHROPIC_CACHE_REQUEST_PROVIDERS
+        if not is_claude_named and not is_anthropic_provider:
+            # cache_control_injection_points is an Anthropic-only kwarg; a config pointing at
+            # another provider (or a model identifier that cannot resolve as Anthropic) will
+            # never attach, so warn instead of silently dropping it in a debug line.
+            _log_anthropic_cache_warning(
+                model, "the request does not route to an Anthropic Claude model"
+            )
+            return
+        try:
+            supports = litellm.utils.supports_prompt_caching(model)
+        except Exception:
+            return
+        if supports is False and is_claude_named:
+            # Conclusive only for a model identifier we recognize; a provider-aliased model
+            # (e.g. anthropic/my-deployment) may simply be absent from litellm's cost map.
+            _log_anthropic_cache_warning(model, "the model does not support prompt caching")
+            return
+        try:
+            min_tokens = litellm.get_model_info(model).get("prompt_cache_min_tokens")
+        except Exception:
+            return
+        if not isinstance(min_tokens, int) or isinstance(min_tokens, bool) or min_tokens <= 0:
+            return
+        cached_tokens = LiteLLMAIHandler._estimate_cached_prefix_tokens(system, user, injection_points)
+        if 0 < cached_tokens < min_tokens:
+            _log_anthropic_cache_warning(
+                model,
+                f"the cached prefix is below the model's {min_tokens} token minimum",
+            )
+
+    @staticmethod
+    def _estimate_cached_prefix_tokens(system: str, user: str, injection_points) -> int:
+        """Estimate the tokens in the prompt segment the injection points will cache.
+
+        A cache_control breakpoint caches everything from the start of the prompt up to the
+        targeted message, so the estimate counts the targeted messages plus every message
+        before them (system, then user in this handler's call shape). Returns 0 when none of
+        the points targets a supported role or the estimate cannot be produced, which skips
+        the below-minimum check entirely.
+        """
+        targets_user = any(
+            isinstance(point, dict) and point.get("role") == "user" for point in injection_points
+        )
+        if not any(isinstance(point, dict) and point.get("role") in ("system", "user")
+                   for point in injection_points):
+            return 0
+        try:
+            from pr_agent.algo.token_handler import TokenEncoder
+
+            encoder = TokenEncoder.get_token_encoder("anthropic/claude")
+            system_tokens = len(encoder.encode(system or "", disallowed_special=()))
+            user_tokens = len(encoder.encode(user or "", disallowed_special=()))
+        except Exception:
+            system_tokens = len(system or "") // 4
+            user_tokens = len(user or "") // 4
+        cached_tokens = system_tokens + (user_tokens if targets_user else 0)
+        cached_framing = _CACHE_MESSAGE_FRAMING_ALLOWANCE * (2 if targets_user else 1) + _CACHE_REPLY_FRAMING_ALLOWANCE
+        return cached_tokens + cached_framing
+
     async def chat_completion(self, model: str, system: str, user: str, temperature: float = 0.2, img_path: str = None):
         configured_deployment_id = self.deployment_id
         return await self._chat_completion_with_retry(
@@ -2763,16 +2859,18 @@ class LiteLLMAIHandler(BaseAiHandler):
                 # Anthropic prompt caching via LiteLLM's cache_control_injection_points. The value
                 # is validated before the try/except (see above) so a malformed config surfaces as
                 # a ValueError instead of being retried. The kwarg is Anthropic-specific (Claude via
-                # the Anthropic API, Bedrock or Vertex), so gate on the model to avoid passing an
-                # unsupported param to other providers when litellm.drop_params is off. setdefault
-                # guards against overwriting a value already merged into kwargs.
+                # the Anthropic API, Bedrock or Vertex), so gate the forwarding on the model to
+                # avoid passing an unsupported param to other providers when litellm.drop_params is
+                # off. The pre-call warning runs for every configured model instead, so an operator
+                # who misconfigures an aliased or non-Anthropic model gets a signal rather than a
+                # silently skipped debug line. setdefault guards against overwriting a value already
+                # merged into kwargs.
                 if cache_control_injection_points:
                     if isinstance(model, str) and "claude" in model.lower():
                         kwargs.setdefault("cache_control_injection_points", cache_control_injection_points)
-                    else:
-                        get_logger().debug(
-                            f"cache_control_injection_points configured but not applied: {model} is not an "
-                            "Anthropic (Claude) model")
+                    self._warn_prompt_cache_conditions(
+                        model, system, user, cache_control_injection_points, request_provider=request_provider
+                    )
 
                 # Classic `bedrock/` calls use model_id for Bedrock Runtime inference profiles.
                 # Bedrock Mantle uses Projects, so `bedrock_mantle/` intentionally omits it.
