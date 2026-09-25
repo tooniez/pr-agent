@@ -1,4 +1,5 @@
 import difflib
+import json
 import posixpath
 import re
 import urllib.parse
@@ -47,6 +48,13 @@ from .git_provider import (
     get_config_branch,
     redact_credentials,
 )
+
+# Bounds for the code-suggestion thread context block, matching the Azure DevOps provider:
+# a bounded JSON list of prior suggestion threads is injected into the /improve prompt.
+_MAX_DISCUSSION_CONTEXT_CHARS = 24000
+_MAX_DISCUSSION_REPLIES = 10
+_MAX_DISCUSSION_THREADS = 50
+_MAX_DISCUSSION_MESSAGE_CHARS = 750
 
 
 class DiffNotFoundError(Exception):
@@ -1143,7 +1151,47 @@ class GitLabProvider(GitProvider):
         return True
 
     def get_code_suggestion_thread_context(self) -> str:
-        return ""
+        """Return a bounded JSON block of prior code-suggestion threads on this MR.
+
+        Empty when the MR has no such threads or they cannot be listed.
+        """
+        try:
+            discussions = self.mr.discussions.list(get_all=True)
+        except (GitlabError, RequestException) as e:
+            get_logger().warning(f"Failed to list discussions of merge request {self.id_mr}: {e}")
+            return ""
+        threads, context = [], ""
+        for discussion in reversed(discussions):
+            notes = discussion.attributes.get('notes') or []
+            opener = notes[0] if notes and isinstance(notes[0], dict) else {}
+            body = opener.get('body')
+            position = opener.get('position') if isinstance(opener.get('position'), dict) else {}
+            line = position.get('new_line') or position.get('old_line')
+            if not isinstance(body, str) or not is_agent_inline_comment(body) or not isinstance(line, int):
+                continue
+            replies = []
+            for note in notes[1:][-_MAX_DISCUSSION_REPLIES:]:
+                message = note.get('body') if isinstance(note, dict) and not note.get('system') else None
+                if isinstance(message, str) and message.strip():
+                    author = note.get('author') or {}
+                    replies.append({"author": author.get('name') or author.get('username') or "Unknown",
+                                    "message": message.strip()[:_MAX_DISCUSSION_MESSAGE_CHARS]})
+            threads.append({
+                "thread_id": discussion.id,
+                "status": "resolved" if opener.get('resolved') is True else "open",
+                "file": position.get('new_path') if position.get('new_line') else position.get('old_path'),
+                "start_line": line,
+                "end_line": line,
+                "suggestion": body.split("<!-- pr-agent", 1)[0].strip()[:_MAX_DISCUSSION_MESSAGE_CHARS],
+                "replies": replies,
+            })
+            candidate = json.dumps(threads, ensure_ascii=False, indent=2)
+            if len(candidate) > _MAX_DISCUSSION_CONTEXT_CHARS:
+                break
+            context = candidate
+            if len(threads) >= _MAX_DISCUSSION_THREADS:
+                break
+        return context
 
     def is_comment_authored_by_pr_agent(self, comment) -> bool:
         if isinstance(comment, dict):
