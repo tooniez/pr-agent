@@ -1,3 +1,8 @@
+---
+title: "GitLab Integration"
+sidebar_position: 5
+---
+
 ## Merge request diff limits
 
 PR-Agent requires GitLab 15.7 or later and retrieves all pages from the merge request
