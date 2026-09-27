@@ -101,7 +101,7 @@ const config = {
       metadata: [{name: 'twitter:card', content: 'summary_large_image'}],
       // Click-to-zoom for the UI screenshots (replaces the MkDocs glightbox plugin).
       zoom: {
-        selector: '.markdown img:not(a img)',
+        selector: '.markdown img:not(a img):not(.no-frame)',
         background: {
           light: 'rgba(248, 250, 252, 0.95)',
           dark: 'rgba(11, 18, 32, 0.95)',
@@ -138,6 +138,7 @@ const config = {
             label: 'Core Abilities',
             position: 'left',
           },
+          {to: '/maintainers', label: 'Maintainers', position: 'left'},
           {
             href: 'https://github.com/the-pr-agent/pr-agent',
             label: 'GitHub',
