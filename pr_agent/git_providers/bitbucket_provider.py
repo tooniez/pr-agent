@@ -30,6 +30,25 @@ def _split_raw_diff(raw_diff: str) -> list[str]:
     return [part for part in re.split(r"(?m)(?=^diff --git )", raw_diff) if part.startswith("diff --git ")]
 
 
+def _diffstat_line_count(diff, field: str) -> Optional[int]:
+    """Return Bitbucket's own count for one diffstat ``field``, or None when it is unusable.
+
+    ``None`` is returned per field rather than per file so the caller can fall back to
+    counting the patch for that side alone, instead of reporting an unrelated side as zero.
+    """
+    data = getattr(diff, "data", None) or {}
+    value = data.get(field)
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        get_logger().warning(
+            f"Bitbucket diffstat reported a non-numeric {field} for file {_gef_filename(diff)}"
+        )
+        return None
+
+
 class BitbucketProvider(GitProvider):
     def __init__(
         self, pr_url: Optional[str] = None, incremental: Optional[bool] = False
@@ -361,11 +380,25 @@ class BitbucketProvider(GitProvider):
                 original_file_content_str = ""
                 new_file_content_str = ""
 
+            # Bitbucket's diffstat carries the authoritative per-file counts, so prefer it over
+            # counting the patch, field by field. The raw diff can carry no textual hunk, or a
+            # truncated one, even when the diffstat reports real additions and removals, and a
+            # partially populated diffstat still carries the side it does report.
+            patch_lines = diff_split[index].splitlines(keepends=True)
+            lines_added = _diffstat_line_count(diff, "lines_added")
+            if lines_added is None:
+                lines_added = len([line for line in patch_lines if line.startswith('+')])
+            lines_removed = _diffstat_line_count(diff, "lines_removed")
+            if lines_removed is None:
+                lines_removed = len([line for line in patch_lines if line.startswith('-')])
+
             file_patch_canonic_structure = FilePatchInfo(
                 original_file_content_str,
                 new_file_content_str,
                 diff_split[index],
                 file_path,
+                num_plus_lines=lines_added,
+                num_minus_lines=lines_removed,
             )
 
             if diff.data['status'] == 'added':
