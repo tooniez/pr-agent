@@ -59,6 +59,7 @@ class PRAddDocs:
 
     async def run(self):
         temporary_comment_published = False
+        publication_failed = False
         try:
             get_logger().info('Generating code Docs for PR...')
             if get_settings().config.publish_output:
@@ -77,12 +78,18 @@ class PRAddDocs:
                 self.git_provider.remove_initial_comment()
                 temporary_comment_published = False
                 get_logger().info('Pushing inline code documentation...')
-                self.push_inline_docs(data)
+                publication_result = self.push_inline_docs(data)
+                if publication_result is False:
+                    publication_failed = True
+                    self.git_provider.publish_comment("Failed to publish code documentation for this PR.")
+                    raise RuntimeError("Failed to publish code documentation after individual retries")
         except Exception as e:
             get_logger().error(f"Failed to generate code documentation for PR, error: {e}")
             record_command_failure()
             if get_settings().config.get("propagate_tool_errors", False):
                 raise
+            if publication_failed:
+                return False
         finally:
             if temporary_comment_published:
                 try:
@@ -161,7 +168,8 @@ class PRAddDocs:
         docs = []
 
         if not data['Code Documentation']:
-            return self.git_provider.publish_comment('No code documentation found to improve this PR.')
+            self.git_provider.publish_comment('No code documentation found to improve this PR.')
+            return None
 
         for d in data['Code Documentation']:
             try:
@@ -184,10 +192,20 @@ class PRAddDocs:
                     get_logger().info(f"Could not parse code docs: {d}")
 
         is_successful = self.git_provider.publish_code_suggestions(docs)
+        if not docs:
+            return None
+        if is_successful is True:
+            return True
         if not is_successful:
             get_logger().info("Failed to publish code docs, trying to publish each docs separately")
+            retry_results = []
             for doc_suggestion in docs:
-                self.git_provider.publish_code_suggestions([doc_suggestion])
+                retry_results.append(self.git_provider.publish_code_suggestions([doc_suggestion]))
+            if is_successful is False and all(result is False for result in retry_results):
+                return False
+            if any(result is True for result in retry_results):
+                return True
+        return None
 
     @staticmethod
     def _indent_reference_line(file_lines, index, step):
